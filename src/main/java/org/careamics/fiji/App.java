@@ -69,7 +69,8 @@ public class App extends DynamicCommand implements Initializable {
         // ij.command().run(HelloWorld.class, true);
 
         // ask the user for a file to open
-        final File file = ij.ui().chooseFile(null, "open");
+        final File file = new File("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif");
+        // ij.ui().chooseFile(null, "open");
 
         if (file != null) {
             // load the dataset
@@ -83,18 +84,57 @@ public class App extends DynamicCommand implements Initializable {
         }
     }
 
+    @Override
     public void run() {
         // System.out.println("Hello World!");
         logService.info("Hello World!");
-        String n2vScript = "";
 
+        String uvProjectToml = null;
+        String n2vScript = null;
+
+        logService.info(uvProjectToml);
+
+        final Environment env = createEnvironment();
+
+        final String n2vScript = getN2VScript();
+
+        // System.out.println(n2vScript);
+        logService.info(n2vScript);
+    }
+
+    private Environment createEnvironment() {
+        try {
+            String tomlFile = this.getClass().getClassLoader().getResource("pyproject.toml").getPath();
+            final Environment env = Appose.uv().file(tomlFile)
+                .logDebug()
+                .build();
+
+            return env;
+        } catch (BuildException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private String getN2VScript() {
+        String n2vScript = null;
         try (InputStream instream = this.getClass().getClassLoader().getResourceAsStream("n2v/n2v.py")) {
             n2vScript = new String(instream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-        // System.out.println(n2vScript);
-        logService.info(n2vScript);
+        return n2vScript;
     }
+
+    // private String getPyProjectToml() throws IOException {
+    //     String pyProjectToml = "";
+    //     try (InputStream instream = this.getClass().getClassLoader().getResourceAsStream("pyproject.toml")) {
+    //         pyProjectToml = new String(instream.readAllBytes(), StandardCharsets.UTF_8);
+
+    //     } catch (IOException e) {
+    //         e.printStackTrace();
+    //     }
+
+    //     return pyProjectToml;
+    // }
 }
