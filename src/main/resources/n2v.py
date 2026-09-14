@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import appose
 import numpy as np
@@ -8,10 +8,61 @@ from appose.python_worker import Task
 from careamics.careamist import CAREamist
 from careamics.config import create_advanced_n2v_config
 from careamics.config.configuration import Configuration
+from careamics.lightning.callbacks import ProgressBarCallback
+from lightning.pytorch import LightningModule, Trainer
+from lightning.pytorch.callbacks import ProgressBar
 
 # from numpy.typing import NDArray
 
+
 SEED = 777
+
+
+class ApposeProgressBarCallback(ProgressBar):
+    def __init__(self, task: Task):
+        super().__init__()
+        self.task = task
+        self.num_epochs = 0
+        self.curr_epoch = 0
+
+    def on_fit_start(self, trainer: Trainer, pl_module: LightningModule):
+        super().on_fit_start(trainer, pl_module)
+        self.task.update("on_fit_start")
+        self.num_epochs = trainer.max_epochs
+        self.curr_epoch = trainer.current_epoch
+
+    def on_train_batch_start(
+        self, trainer: Trainer, pl_module: LightningModule, batch, batch_idx
+    ):
+        super().on_train_batch_start(trainer, pl_module, batch, batch_idx)
+        self.task.update("on_train_batch_start")
+        self.task.update(
+            f"Training Epoch {self.curr_epoch + 1}/{self.num_epochs}",
+            current=batch_idx,
+            maximum=int(self.total_train_batches),
+        )
+
+    def on_validation_batch_start(
+        self,
+        trainer: Trainer,
+        pl_module: LightningModule,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ):
+        super().on_validation_batch_start(
+            trainer, pl_module, batch, batch_idx, dataloader_idx
+        )
+        self.task.update("on_validation_batch_start")
+        self.task.update(
+            "Validation:", current=batch_idx, maximum=int(self.total_val_batches)
+        )
+
+    def on_fit_end(self, trainer: Trainer, pl_module: LightningModule):
+        super().on_fit_end(trainer, pl_module)
+        self.task.update(
+            "Training finished", current=self.num_epochs, maximum=self.num_epochs
+        )
 
 
 def log(msg: str, end="\n"):
@@ -60,11 +111,17 @@ def create_config(
     return config
 
 
-# ==================== main script ====================
+def update_callbacks(careamist: CAREamist, task: Task):
+    progress_callback = ApposeProgressBarCallback(task)
+    callbacks = [
+        cb for cb in careamist.callbacks if not isinstance(cb, ProgressBarCallback)
+    ]
+    callbacks.append(progress_callback)
+    careamist.callbacks = callbacks
+    careamist.trainer.callbacks = [careamist.prediction_writer, *callbacks]
 
-# override the print function
-# to redirect print statements to task updates
-print = log
+
+# ========================= main script =========================
 
 # appose mode
 appose_mode = "task" in globals()
@@ -104,8 +161,15 @@ config = create_config(
 )
 
 # careamist
+log("Initializing CAREamist...")
 work_dir = Path("..")
 careamist = CAREamist(config, work_dir=work_dir)
+if task is not None:
+    # careamist.callbacks = get_callbacks(careamist, task)
+    update_callbacks(careamist, task)
+
+# log(f"CAREamist callbacks: {len(careamist.callbacks)}")
+log(f"Callbacks initialized\n{[type(cb).__name__ for cb in careamist.callbacks]}")
 
 # train
 log("starting training...")

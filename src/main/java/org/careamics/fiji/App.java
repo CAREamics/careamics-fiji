@@ -14,11 +14,11 @@ import javax.swing.SwingUtilities;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.WindowManager;
+import ij.gui.GUI;
 
 import net.imagej.ImageJ;
 import net.imagej.Dataset;
 import net.imagej.ImgPlus;
-import net.imagej.ops.bufferfactories.ImgImgSameTypeFactory;
 import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.appose.NDArrays;
 import net.imglib2.appose.ShmImg;
@@ -46,6 +46,8 @@ import org.scijava.Context;
 import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
+
+import org.careamics.fiji.gui.MainGUI;
 
 
 @Plugin(type = Command.class, menuPath = "Plugins>CAREamics>Noise2Void")
@@ -82,6 +84,11 @@ public class App extends DynamicCommand implements Initializable {
             IJ.error("No image is available.");
             return;
         }
+
+        // show the main GUI
+        final MainGUI mainGUI = new MainGUI();
+        GUI.center(mainGUI);
+        logger.info("Number of Epochs: " + mainGUI.numEpochs);
 
         // process the image by running the python script
         final Task task = processImage(imgp);
@@ -173,7 +180,7 @@ public class App extends DynamicCommand implements Initializable {
         try {
             final Environment env = Appose.uv()
                 .python("3.11")
-                .include("careamics==0.3.2", "appose>=0.12.0")
+                .include("careamics==0.3.3", "appose>=0.12.0")
                 .name("careamics_env")
                 .logDebug()
                 // .subscribeProgress((msg, curr, max) -> {IJ.log(msg);})
@@ -190,7 +197,7 @@ public class App extends DynamicCommand implements Initializable {
 
     private String getN2VScript() {
         String n2vScript = null;
-        try (InputStream instream = this.getClass().getClassLoader().getResourceAsStream("n2v/n2v.py")) {
+        try (InputStream instream = this.getClass().getClassLoader().getResourceAsStream("n2v.py")) {
             n2vScript = new String(instream.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             e.printStackTrace();
