@@ -5,6 +5,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,13 +49,17 @@ import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
 import org.careamics.fiji.gui.MainGUI;
+import org.careamics.fiji.Config;
 
 
 @Plugin(type = Command.class, menuPath = "Plugins>CAREamics>Noise2Void")
-public class App extends DynamicCommand implements Initializable {
+public class N2V extends DynamicCommand implements Initializable {
 
     @Parameter
     private LogService logger;
+
+    protected MainGUI mainGUI;
+    protected Task task;
 
     @Override
     public void initialize() {
@@ -69,7 +74,7 @@ public class App extends DynamicCommand implements Initializable {
 		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val_small.tif").show();
         
         try (Context context = new Context()) {
-            final App plugin = new App();
+            final N2V plugin = new N2V();
             context.inject(plugin);
             plugin.run();
         }
@@ -78,45 +83,57 @@ public class App extends DynamicCommand implements Initializable {
     @Override
     public void run() {
         // get the current image
-        // logger.info("Image count: " + WindowManager.getImageCount());
         ImagePlus imgp = WindowManager.getCurrentImage();
         if (imgp == null) {
             IJ.error("No image is available.");
             return;
         }
 
-        // show the main GUI
-        final MainGUI mainGUI = new MainGUI();
-        GUI.center(mainGUI);
-        logger.info("Number of Epochs: " + mainGUI.numEpochs);
+        // width, height, nChannels, nSlices, nFrames
+        int[] dims = imgp.getDimensions();
+        logger.info("Image dimensions: " + Arrays.toString(dims));
+        int num_channels = dims[2];
+        int num_slices = dims[3];
+        int num_frames = dims[4];
+        // get the iamge name and drop the file extension from the image name
+        String img_name = imgp.getTitle();
+        img_name = img_name.contains(".") ? img_name.substring(0, img_name.lastIndexOf('.')) : img_name;
 
-        // process the image by running the python script
-        final Task task = processImage(imgp);
+        // show the main GUI
+        this.mainGUI = new MainGUI(img_name, num_channels, num_slices, num_frames);
+        GUI.center(this.mainGUI);
         
-        if ( task.status != TaskStatus.COMPLETE )
-            throw new RuntimeException("Python script failed with error: " + task.error);
+        mainGUI.addPropertyChangeListener(evt -> {
+            if (evt.getPropertyName() == MainGUI.CONFIGREADY) {
+                Config config = (Config) evt.getNewValue();
+                logger.info("Configuration is ready: " + config.toString());
+                
+                // process the image by running the python script
+                this.task = processImage(imgp, config);
+
+                if ( this.task.status != TaskStatus.COMPLETE )
+                    throw new RuntimeException("Python script failed with error: " + task.error);
+                
+                final NDArray prediction = (NDArray) task.outputs.get("prediction");
+                // // final Img<?> output = arrayToImage(prediction);
+                // // ShmImg<FloatType> img = new ShmImg<>(prediction);
+                ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
+                // // NDArray copied = NDArrays.asNDArray(img);
+                ImageJFunctions.show(view);
+                // ImageJFunctions.wrap(prediction, "Prediction");
         
-        final NDArray prediction = (NDArray) task.outputs.get("prediction");
-        // final Img<?> output = arrayToImage(prediction);
-        // ShmImg<FloatType> img = new ShmImg<>(prediction);
-        ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
-        // NDArray copied = NDArrays.asNDArray(img);
-        ImageJFunctions.show(view);
-        // ImageJFunctions.wrap(prediction, "Prediction");
+            }
+        });
 
     }
 
-    private Task processImage(final ImagePlus imgp) {
-        logger.info("creating the uv environment...");
+    private Task processImage(final ImagePlus imgp, final Config config) {
+        logger.info("creating the python uv environment...");
         final Environment env = createEnvironment();
         
         final String n2vScript = getN2VScript();
-        // logger.info(n2vScript);
         
-        final Map<String, Object> inputs = new HashMap<>();
-        inputs.put("input_image", imageToAppose(imgp));
-        
-        inputs.put("num_epochs", 2);
+        final Map<String, Object> inputs = getInputs(imgp, config);
         
         try (Service python = env.python()) {
             final Task task = python.task(n2vScript, inputs);
@@ -125,21 +142,26 @@ public class App extends DynamicCommand implements Initializable {
             task.listen(event -> {
                 switch (event.responseType) {
                     case UPDATE:
-                        logger.info("[Python backend]" + event.message);
+                        String msg = event.message;
+                        if (event.maximum > 0) {
+                            msg += " (" + event.current + "/" + event.maximum + ")";
+                            this.mainGUI.updateProgress(msg, event.current, event.maximum);
+                        }
+                        logger.info("[Python backend] " + msg);
                         break;
-                    
+                
                     case COMPLETION:
-                        IJ.log("Task completed successfully.");
+                        logger.info("Task completed successfully.");
                         break;
-                    
+                
                     case CANCELATION:
-                        IJ.log("Task was cancelled.");
+                        logger.warn("Task was cancelled.");
                         break;
-                    
+                
                     case FAILURE:
-                        IJ.error("Task failed", event.task.error);
+                        logger.error("Task failed:\n" + event.task.error);
                         break;
-                    
+                
                     default:
                         break;
                 }
@@ -153,6 +175,17 @@ public class App extends DynamicCommand implements Initializable {
             IJ.error(e.toString());
             return null;
         }
+    }
+
+    private Map<String, Object> getInputs(final ImagePlus imgp, final Config config) {
+        final Map<String, Object> inputs = new HashMap<>();
+        inputs.put("input_image", imageToAppose(imgp));
+        inputs.put("patch_size", config.patchSize);
+        inputs.put("batch_size", config.batchSize);
+        inputs.put("num_epochs", config.numEpochs);
+        inputs.put("num_steps", config.numSteps);
+
+        return inputs;
     }
 
     private <T extends RealType<T> & NativeType<T>> NDArray imageToAppose(final ImagePlus imgp) {
@@ -180,7 +213,8 @@ public class App extends DynamicCommand implements Initializable {
         try {
             final Environment env = Appose.uv()
                 .python("3.11")
-                .include("careamics==0.3.3", "appose>=0.12.0")
+                .include("appose>=0.12.0", "careamics==0.3.3")
+                .include("git+https://github.com/CAREamics/careamics-appose.git")
                 .name("careamics_env")
                 .logDebug()
                 // .subscribeProgress((msg, curr, max) -> {IJ.log(msg);})
