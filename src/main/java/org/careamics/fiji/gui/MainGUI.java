@@ -1,14 +1,14 @@
 package org.careamics.fiji.gui;
 
-import ij.gui.GenericDialog;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.beans.PropertyChangeListener;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import javax.swing.event.SwingPropertyChangeSupport;
-
-import java.awt.*;
-import java.beans.PropertyChangeListener;
 
 import org.careamics.fiji.Config;
 
@@ -18,7 +18,7 @@ public class MainGUI extends JFrame {
     public static final String CANCELREQUESTED = "cancelRequested";
 
     protected JTextField experimentNameField;
-    protected JComboBox<String> axesCombo;
+    protected JTextField axesField;
     protected JCheckBox patch3DCheckBox;
     protected JSpinner patchYXSpin;
     protected JSpinner patchZSpin;
@@ -31,11 +31,12 @@ public class MainGUI extends JFrame {
     protected JButton stopButton;
 
     protected Config config;
+    protected String axes = "XY";
     protected String dataType = "array";
-    protected String name;
-    protected int num_channels;
-    protected int num_slices;
-    protected int num_frames;
+    protected String imgName;
+    protected int numChannels;
+    protected int numSlices;
+    protected int numFrames;
 
     private SwingPropertyChangeSupport pcSupport = new SwingPropertyChangeSupport(this);
 
@@ -49,19 +50,19 @@ public class MainGUI extends JFrame {
     }
 
     public MainGUI(
-        String name,
-        int num_channels,
-        int num_slices,
-        int num_frames
+        String imgName,
+        int numChannels,
+        int numSlices,
+        int numFrames
     ) {
-        super("Configuration");
+        super("CAREamics");
         setAlwaysOnTop(true);
         
         // image name and dimensions
-        this.name = name;
-        this.num_channels = num_channels;
-        this.num_slices = num_slices;
-        this.num_frames = num_frames;
+        this.imgName = imgName;
+        this.numChannels = numChannels;
+        this.numSlices = numSlices;
+        this.numFrames = numFrames;
         
         setLayout(new BorderLayout());
         
@@ -76,12 +77,17 @@ public class MainGUI extends JFrame {
         gbc.weighty = 0.1;
         mainPanel.add(createTitlePanel(), gbc);
         
+        gbc.anchor = GridBagConstraints.NORTH;
+        gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(5, 50, 5, 50);
-        gbc.gridy = 1;
-        gbc.weighty = 0.85;
+        gbc.gridy++;
+        gbc.weighty = 2.0;
         mainPanel.add(createConfigPanel(), gbc);
 
-        gbc.gridy = 2;
+        gbc.anchor = GridBagConstraints.SOUTH;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(5, 10, 5, 10);
+        gbc.gridy++;
         gbc.weighty = 0.05;
         mainPanel.add(createBottomPanel(), gbc);
 
@@ -99,17 +105,17 @@ public class MainGUI extends JFrame {
 
         this.stopButton.addActionListener(e -> {
             this.stopButton.setEnabled(false);
+            this.mainProgressBar.setIndeterminate(true);
+            this.mainProgressBar.setString("Stopping...");
             
             pcSupport.firePropertyChange(CANCELREQUESTED, null, null);
         });
 
-        pack();
-        setSize(420, 500);
+        setSize(420, 540);
+        // pack();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setVisible(true);
-
-
     }
 
     public void addPropertyChangeListener(PropertyChangeListener listener) {
@@ -135,9 +141,15 @@ public class MainGUI extends JFrame {
         this.subProgressBar.repaint();
     }
 
-    public void resetButtons() {
+    public void reset() {
         this.runButton.setEnabled(true);
         this.stopButton.setEnabled(false);
+        
+        this.mainProgressBar.setIndeterminate(false);
+        this.mainProgressBar.setValue(0);
+        this.mainProgressBar.setString("0%");
+        this.subProgressBar.setValue(0);
+        this.subProgressBar.setString("0%");
     }
 
     protected Config createConfig() {
@@ -148,7 +160,7 @@ public class MainGUI extends JFrame {
         config.numSteps = (Integer) this.numStepsSpin.getValue();
         config.dataType = this.dataType;
         // axes
-        config.axes = "YX";
+        config.axes = this.axesField.getText().toUpperCase() + "YX";
         // patch size
         int[] patchSize = new int[]{
             (Integer) this.patchYXSpin.getValue(),
@@ -169,15 +181,14 @@ public class MainGUI extends JFrame {
     protected JPanel createTitlePanel() {
         // Create the title panel
         JPanel titlePanel = new JPanel();
+        
         titlePanel.setBackground(Color.decode("#2a343d"));        
-        // String text = "<html><div style='text-align: center; font-size: 15px;'>"
-        //         + "<span style='color: #b57a32;'>CAREamics </span>" + "<span style='color: #c8613c;'>Fiji</span>";
         ImageIcon banner = new ImageIcon(getClass().getClassLoader().getResource("banner_careamics.png"));
+        int w = banner.getIconWidth();
+        int h = banner.getIconHeight();
+        
         JLabel titleLabel = new JLabel(banner, SwingConstants.CENTER);
-        // JLabel titleLabel = new JLabel(text, SwingConstants.CENTER);
-        // titleLabel.setFont(new Font("mono", Font.BOLD, 24));
-        // final Integer w = ImageIcon.getIconWidth();
-        titlePanel.setPreferredSize(new Dimension(420, 147));
+        titlePanel.setPreferredSize(new Dimension(w, h));
         titlePanel.setLayout(new BorderLayout());
         titlePanel.add(titleLabel, BorderLayout.CENTER);
 
@@ -190,7 +201,8 @@ public class MainGUI extends JFrame {
         
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 0, 0);
-
+        gbc.weighty = 1.0;
+        
         // Experiment Name
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
@@ -203,17 +215,70 @@ public class MainGUI extends JFrame {
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 0.8;
-        String ex_name = this.name == null ? "n2v" : this.name + "_n2v";
+        String ex_name = this.imgName == null ? "n2v" : this.imgName + "_n2v";
         this.experimentNameField = new JTextField(ex_name);
         configPanel.add(this.experimentNameField, gbc);
-
-        // YX Patch Size
+    
+        // axes
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.gridx = 0;
         gbc.gridy++;
         gbc.weightx = 0.1;
-        configPanel.add(new JLabel("YX Patch Size:", SwingConstants.RIGHT), gbc);
+        configPanel.add(new JLabel("Input Axes:", SwingConstants.RIGHT), gbc);
+        // XY as a fixed label
+        gbc.insets = new Insets(0, 3, 0, 0);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 1;
+        gbc.weightx = 0.8;
+        configPanel.add(new JLabel("XY"), gbc);
+        // C Z T
+        String extraAxes = "";
+        if (this.numChannels > 1) {
+            extraAxes += "C";
+        }
+        if (this.numSlices > 1) {
+            extraAxes += "Z";
+        }
+        if (this.numFrames > 1) {
+            extraAxes += "T";
+        }
+        this.axesField = new JTextField(extraAxes);
+        this.axesField.setToolTipText("only valid characters: [C, Z, T]");
+        // input validation
+        ArrayList<Character> validAxes = new ArrayList<Character>(Arrays.asList('C', 'Z', 'T'));
+        this.axesField.addKeyListener(new KeyAdapter() {
+            public void keyTyped(KeyEvent e) {
+                char _input = Character.toUpperCase(e.getKeyChar());
+                if (!validAxes.contains(_input)) {
+                    e.consume(); // ignore invalid key presses
+                } else if (axesField.getText().toUpperCase().contains(String.valueOf(_input))) {
+                    e.consume(); // ignore duplicate key presses
+                }
+            }
+            // to upper case
+            public void keyReleased(KeyEvent e) {
+                String text = axesField.getText().toUpperCase();
+                axesField.setText(text);
+            }
+        });
+
+        gbc.insets = new Insets(0, 25, 0, 0);
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 0.2;
+        gbc.gridx = 1;
+        configPanel.add(this.axesField, gbc);
+    
+        // YX Patch Size
+        gbc.insets = new Insets(0, 0, 0, 0);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.weightx = 0.1;
+        configPanel.add(new JLabel("XY Patch Size:", SwingConstants.RIGHT), gbc);
         
         gbc.gridx = 1;
         gbc.anchor = GridBagConstraints.EAST;
@@ -221,7 +286,7 @@ public class MainGUI extends JFrame {
         gbc.weightx = 0.8;
         this.patchYXSpin = new JSpinner(new SpinnerNumberModel(64, 8, 998, 2));
         configPanel.add(this.patchYXSpin, gbc);
-
+    
         // 3D Checkbox
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -232,7 +297,7 @@ public class MainGUI extends JFrame {
         // disable Z Patch Size if 3D Patching is not selected
         this.patch3DCheckBox.addActionListener(e -> this.patchZSpin.setEnabled(this.patch3DCheckBox.isSelected()));
         configPanel.add(this.patch3DCheckBox, gbc);
-
+    
         // Z Patch Size
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
@@ -248,7 +313,7 @@ public class MainGUI extends JFrame {
         this.patchZSpin = new JSpinner(new SpinnerNumberModel(8, 8, 998, 2));
         this.patchZSpin.setEnabled(false);
         configPanel.add(this.patchZSpin, gbc);
-
+    
         // Batch Size
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
@@ -331,7 +396,7 @@ public class MainGUI extends JFrame {
         panel.add(this.runButton, gbc);
 
         gbc.gridx = 1;
-        this.stopButton = new JButton("Cancel");
+        this.stopButton = new JButton("Stop");
         this.stopButton.setEnabled(false);
         panel.add(this.stopButton, gbc);
 
