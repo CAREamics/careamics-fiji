@@ -77,7 +77,8 @@ public class N2V extends DynamicCommand implements Initializable {
 		// ImageJ.main(args);
         final ImageJ ij = new ImageJ();
         ij.ui().showUI();
-		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
+		// IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
+        IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
         
         try (Context context = new Context()) {
             final N2V plugin = new N2V();
@@ -134,7 +135,7 @@ public class N2V extends DynamicCommand implements Initializable {
             @Override
             protected Task doInBackground() throws Exception {
                 apposeTask = processImage(imgp, config);
-                publish(apposeTask);
+
                 return apposeTask;
             }
         
@@ -160,7 +161,7 @@ public class N2V extends DynamicCommand implements Initializable {
                 } catch (Exception e) {
                     logger.error("Error executing task", e);
                 } finally {
-                    mainGUI.resetButtons();
+                    mainGUI.reset();
                 }
             }
         };
@@ -173,7 +174,7 @@ public class N2V extends DynamicCommand implements Initializable {
         
         final String n2vScript = getN2VScript();
         
-        final Map<String, Object> inputs = getInputs(imgp, config);
+        final Map<String, Object> inputs = setPythonInputs(imgp, config);
         
         try (Service python = env.python()) {
             apposeTask = python.task(n2vScript, inputs);
@@ -219,9 +220,10 @@ public class N2V extends DynamicCommand implements Initializable {
         }
     }
 
-    private Map<String, Object> getInputs(final ImagePlus imgp, final Config config) {
+    private Map<String, Object> setPythonInputs(final ImagePlus imgp, final Config config) {
         final Map<String, Object> inputs = new HashMap<>();
         inputs.put("input_image", imageToAppose(imgp));
+        inputs.put("axes", config.axes);
         inputs.put("patch_size", config.patchSize);
         inputs.put("batch_size", config.batchSize);
         inputs.put("num_epochs", config.numEpochs);

@@ -31,6 +31,20 @@ def is_task_cancelled() -> bool:
     return task is not None and task.cancel_requested
 
 
+def transpose_axes(axes: str) -> str:
+    _axes = "YX"
+    if "C" in axes:
+        _axes = "C" + _axes
+
+    if "Z" in axes:
+        _axes = "Z" + _axes
+
+    if "T" in axes:
+        _axes = "T" + _axes
+
+    return _axes
+
+
 def create_config(
     data_type: Literal["array", "tiff", "zarr", "czi", "custom"] = "array",
     axes: str = "YX",
@@ -79,19 +93,20 @@ if appose_mode:
         train_data = input_image.ndarray()
         log(f"input_image: {input_image.shape}")
 
+    axes = transpose_axes(globals().get("axes", "YX"))
     patch_size = globals().get("patch_size", [64, 64])
     batch_size = globals().get("batch_size", 8)
     num_epochs = globals().get("num_epochs", 1)
     num_steps = globals().get("num_steps", 100)
     log(
-        f"patch_size: {patch_size}, batch_size: {batch_size}, "
+        f"axes: {axes}, patch_size: {patch_size}, batch_size: {batch_size}, "
         f"num_epochs: {num_epochs}, num_steps: {num_steps}"
     )
 
 # config
 config = create_config(
     data_type="array",
-    axes="YX",
+    axes=axes,
     patch_size=patch_size,
     batch_size=batch_size,
     num_epochs=num_epochs,

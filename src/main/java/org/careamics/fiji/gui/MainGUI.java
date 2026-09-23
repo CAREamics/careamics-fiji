@@ -384,6 +384,7 @@ public class MainGUI extends JFrame {
         this.subProgressBar = new JProgressBar(0, 100);
         this.subProgressBar.setStringPainted(true);
         this.subProgressBar.setMaximum(1);
+        this.subProgressBar.setForeground(Color.getColor("#1ab1eb"));
         panel.add(this.subProgressBar, gbc);
 
         gbc.gridy++;
