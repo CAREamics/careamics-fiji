@@ -16,8 +16,8 @@
 	<version>1.0-SNAPSHOT</version>
 
 	<name>careamics-fiji</name>
-	<description>An example of a Fiji plugin based on Appose.</description>
-	<url>http://www.example.com</url>
+	<description>CAREamics Fiji plugin based on Appose.</description>
+	<url>https://careamics.github.io/</url>
 	<inceptionYear>2026</inceptionYear>
 	<organization>
 		<name>CAREamics</name>
@@ -25,19 +25,18 @@
 	</organization>
 	<licenses>
 		<license>
-			<name>GNU General Public License v2+</name>
-			<url>https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html</url>
+			<name>BSD 3-Clause License</name>
+			<url>https://opensource.org/licenses/BSD-3-Clause</url>
 			<distribution>repo</distribution>
 		</license>
 	</licenses>
 
 	<developers>
 		<developer>
-			<id>your-id-here</id>
-			<name>Your Name Here</name>
-			<url>http://imagej.net/User:YourWikiUsername</url>
+			<id>mese79</id>
+			<name>Mehdi Seifi</name>
+			<url>https://github.com/mese79</url>
 			<roles>
-				<role>founder</role>
 				<role>lead</role>
 				<role>developer</role>
 				<role>debugger</role>
@@ -50,10 +49,10 @@
 
 	<contributors>
 		<contributor>
-			<name>Someone Who Contributed</name>
-			<url>http://imagej.net/User:TheirWikiUsername</url>
+			<name>Mehdi Seifi</name>
+			<url>https://github.com/mese79</url>
 			<properties>
-				<id>their-id</id>
+				<id>mese79</id>
 			</properties>
 		</contributor>
 	</contributors>
@@ -66,10 +65,10 @@
 	</mailingLists>
 
 	<scm>
-		<connection>scm:git:git://github.com/apposed/appose-fiji-plugin</connection>
-		<developerConnection>scm:git:git@github.com:apposed/appose-fiji-plugin</developerConnection>
+		<connection>scm:git:git://github.com/CAREamics/careamics-fiji</connection>
+		<developerConnection>scm:git:git@github.com:CAREamics/careamics-fiji</developerConnection>
 		<tag>HEAD</tag>
-		<url>https://github.com/apposed/appose-fiji-plugin</url>
+		<url>https://github.com/CAREamics/careamics-fiji</url>
 	</scm>
 
 	<issueManagement>
@@ -87,7 +86,7 @@
 
 		<package-name>org.careamics.fiji</package-name>
 		<main-class>org.careamics.fiji.App</main-class>
-		<license.licenseName>gpl_v2</license.licenseName>
+		<license.licenseName>bsd_3_clause</license.licenseName>
 		<license.copyrightOwners>CAREamics Team</license.copyrightOwners>
 
 		<!-- Use Java 21. -->

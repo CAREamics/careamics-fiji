@@ -2,7 +2,7 @@ package org.careamics.fiji;
 
 
 public class Config {
-    public String experiment_name;
+    public String experimentName;
     public String dataType;
     public String axes;
     public int[] patchSize;
@@ -17,7 +17,7 @@ public class Config {
     }
 
     public Config(
-        String experiment_name,
+        String experimentName,
         String dataType,
         String axes,
         int[] patchSize,
@@ -26,7 +26,7 @@ public class Config {
         int numSteps,
         String[] augmentations
     ) {
-        this.experiment_name = experiment_name;
+        this.experimentName = experimentName;
         this.dataType = dataType;
         this.axes = axes;
         this.augmentations = augmentations;
@@ -39,7 +39,7 @@ public class Config {
     @Override
     public String toString() {
         return "Config{" +
-                "experiment_name='" + experiment_name + '\'' +
+                "experimentName='" + experimentName + '\'' +
                 ", dataType='" + dataType + '\'' +
                 ", axes='" + axes + '\'' +
                 ", patchSize=" + java.util.Arrays.toString(patchSize) +

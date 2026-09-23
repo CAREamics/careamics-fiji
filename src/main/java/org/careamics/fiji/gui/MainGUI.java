@@ -15,6 +15,7 @@ import org.careamics.fiji.Config;
 
 public class MainGUI extends JFrame {
     public static final String CONFIGREADY = "configReady";
+    public static final String CANCELREQUESTED = "cancelRequested";
 
     protected JTextField experimentNameField;
     protected JComboBox<String> axesCombo;
@@ -27,7 +28,7 @@ public class MainGUI extends JFrame {
     protected JProgressBar mainProgressBar;
     protected JProgressBar subProgressBar;
     protected JButton runButton;
-    protected JButton cancelButton;
+    protected JButton stopButton;
 
     protected Config config;
     protected String dataType = "array";
@@ -89,10 +90,17 @@ public class MainGUI extends JFrame {
 
         this.runButton.addActionListener(e -> {
             this.runButton.setEnabled(false);
-            
-            createConfig();
+            this.stopButton.setEnabled(true);
+
+            this.config = createConfig();
             // dispatch the config event
             pcSupport.firePropertyChange(CONFIGREADY, null, this.config);
+        });
+
+        this.stopButton.addActionListener(e -> {
+            this.stopButton.setEnabled(false);
+            
+            pcSupport.firePropertyChange(CANCELREQUESTED, null, null);
         });
 
         pack();
@@ -127,15 +135,20 @@ public class MainGUI extends JFrame {
         this.subProgressBar.repaint();
     }
 
-    protected void createConfig() {
-        this.config = new Config();
-        this.config.experiment_name = this.experimentNameField.getText();
-        this.config.batchSize = (Integer) this.batchSizeSpin.getValue();
-        this.config.numEpochs = (Integer) this.numEpochsSpin.getValue();
-        this.config.numSteps = (Integer) this.numStepsSpin.getValue();
-        this.config.dataType = this.dataType;
+    public void resetButtons() {
+        this.runButton.setEnabled(true);
+        this.stopButton.setEnabled(false);
+    }
+
+    protected Config createConfig() {
+        Config config = new Config();
+        config.experimentName = this.experimentNameField.getText();
+        config.batchSize = (Integer) this.batchSizeSpin.getValue();
+        config.numEpochs = (Integer) this.numEpochsSpin.getValue();
+        config.numSteps = (Integer) this.numStepsSpin.getValue();
+        config.dataType = this.dataType;
         // axes
-        this.config.axes = "YX";
+        config.axes = "YX";
         // patch size
         int[] patchSize = new int[]{
             (Integer) this.patchYXSpin.getValue(),
@@ -148,8 +161,9 @@ public class MainGUI extends JFrame {
                 (Integer) this.patchYXSpin.getValue()
             };
         }
-        this.config.patchSize = patchSize;
-        // this.config.augmentations = new String[]{};
+        config.patchSize = patchSize;
+        // config.augmentations = new String[]{};
+        return config;
     }
 
     protected JPanel createTitlePanel() {
@@ -298,11 +312,13 @@ public class MainGUI extends JFrame {
 
         this.mainProgressBar = new JProgressBar(0, 100);
         this.mainProgressBar.setStringPainted(true);
+        this.mainProgressBar.setMaximum(1);
         panel.add(this.mainProgressBar, gbc);
 
         gbc.gridy++;
         this.subProgressBar = new JProgressBar(0, 100);
         this.subProgressBar.setStringPainted(true);
+        this.subProgressBar.setMaximum(1);
         panel.add(this.subProgressBar, gbc);
 
         gbc.gridy++;
@@ -315,8 +331,9 @@ public class MainGUI extends JFrame {
         panel.add(this.runButton, gbc);
 
         gbc.gridx = 1;
-        this.cancelButton = new JButton("Cancel");
-        panel.add(this.cancelButton, gbc);
+        this.stopButton = new JButton("Cancel");
+        this.stopButton.setEnabled(false);
+        panel.add(this.stopButton, gbc);
 
         return panel;
     }

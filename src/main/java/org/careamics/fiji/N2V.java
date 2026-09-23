@@ -7,10 +7,14 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.beans.PropertyChangeListener;
+import java.beans.PropertyChangeEvent;
 
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 
 import ij.IJ;
 import ij.ImagePlus;
@@ -59,7 +63,9 @@ public class N2V extends DynamicCommand implements Initializable {
     private LogService logger;
 
     protected MainGUI mainGUI;
-    protected Task task;
+    protected Environment apposeEnv;
+    protected Task apposeTask;
+    protected SwingWorker<Task, Task> taskWorker;
 
     @Override
     public void initialize() {
@@ -71,7 +77,7 @@ public class N2V extends DynamicCommand implements Initializable {
 		// ImageJ.main(args);
         final ImageJ ij = new ImageJ();
         ij.ui().showUI();
-		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val_small.tif").show();
+		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
         
         try (Context context = new Context()) {
             final N2V plugin = new N2V();
@@ -88,7 +94,7 @@ public class N2V extends DynamicCommand implements Initializable {
             IJ.error("No image is available.");
             return;
         }
-
+        
         // width, height, nChannels, nSlices, nFrames
         int[] dims = imgp.getDimensions();
         logger.info("Image dimensions: " + Arrays.toString(dims));
@@ -97,8 +103,8 @@ public class N2V extends DynamicCommand implements Initializable {
         int num_frames = dims[4];
         // get the iamge name and drop the file extension from the image name
         String img_name = imgp.getTitle();
-        img_name = img_name.contains(".") ? img_name.substring(0, img_name.lastIndexOf('.')) : img_name;
-
+        img_name = img_name.contains(".") ? img_name.substring(0, img_name.lastIndexOf(".")) : img_name;
+        
         // show the main GUI
         this.mainGUI = new MainGUI(img_name, num_channels, num_slices, num_frames);
         GUI.center(this.mainGUI);
@@ -106,73 +112,109 @@ public class N2V extends DynamicCommand implements Initializable {
         mainGUI.addPropertyChangeListener(evt -> {
             if (evt.getPropertyName() == MainGUI.CONFIGREADY) {
                 Config config = (Config) evt.getNewValue();
-                logger.info("Configuration is ready: " + config.toString());
-                
-                // process the image by running the python script
-                this.task = processImage(imgp, config);
-
-                if ( this.task.status != TaskStatus.COMPLETE )
-                    throw new RuntimeException("Python script failed with error: " + task.error);
-                
-                final NDArray prediction = (NDArray) task.outputs.get("prediction");
-                // // final Img<?> output = arrayToImage(prediction);
-                // // ShmImg<FloatType> img = new ShmImg<>(prediction);
-                ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
-                // // NDArray copied = NDArrays.asNDArray(img);
-                ImageJFunctions.show(view);
-                // ImageJFunctions.wrap(prediction, "Prediction");
-        
+                logger.info("Configuration: " + config.toString());
+            
+                // run the image processing task in the background
+                this.taskWorker = createTaskWorker(imgp, config);
+                this.taskWorker.execute();
+            
+            } else if (evt.getPropertyName() == MainGUI.CANCELREQUESTED) {
+                logger.info("Task cancellation requested.");
+                if (apposeTask != null) {
+                    logger.info(apposeTask);
+                    apposeTask.cancel();
+                }
             }
         });
+        
+    }
 
+    private SwingWorker<Task, Task> createTaskWorker(final ImagePlus imgp, final Config config) {
+        return new SwingWorker<>() {
+            @Override
+            protected Task doInBackground() throws Exception {
+                apposeTask = processImage(imgp, config);
+                publish(apposeTask);
+                return apposeTask;
+            }
+        
+            @Override
+            protected void done() {
+                try {
+                    apposeTask = get();
+                    if (apposeTask == null) {
+                        logger.error("Python script failed: apposeTask is null");
+                        return;
+                    }
+                    if (apposeTask.status == TaskStatus.FAILED) {
+                        throw new RuntimeException("Python script failed with error: " + apposeTask.error);
+                    }
+                    
+                    if (apposeTask.status == TaskStatus.COMPLETE && apposeTask.outputs.containsKey("prediction")) {
+                        final NDArray prediction = (NDArray) apposeTask.outputs.get("prediction");
+                        ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
+                        ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
+                        ImageJFunctions.show(view);
+                    }
+                
+                } catch (Exception e) {
+                    logger.error("Error executing task", e);
+                } finally {
+                    mainGUI.resetButtons();
+                }
+            }
+        };
     }
 
     private Task processImage(final ImagePlus imgp, final Config config) {
         logger.info("creating the python uv environment...");
-        final Environment env = createEnvironment();
+        this.apposeEnv = createEnvironment();
+        final Environment env = this.apposeEnv;
         
         final String n2vScript = getN2VScript();
         
         final Map<String, Object> inputs = getInputs(imgp, config);
         
         try (Service python = env.python()) {
-            final Task task = python.task(n2vScript, inputs);
+            apposeTask = python.task(n2vScript, inputs);
             
             // listen for task updates
-            task.listen(event -> {
+            apposeTask.listen(event -> {
                 switch (event.responseType) {
                     case UPDATE:
                         String msg = event.message;
                         if (event.maximum > 0) {
                             msg += " (" + event.current + "/" + event.maximum + ")";
-                            this.mainGUI.updateProgress(msg, event.current, event.maximum);
+                            SwingUtilities.invokeLater(() -> {
+                                this.mainGUI.updateProgress(event.message, event.current, event.maximum);
+                            });
                         }
                         logger.info("[Python backend] " + msg);
                         break;
-                
+                    
                     case COMPLETION:
                         logger.info("Task completed successfully.");
                         break;
-                
+                    
                     case CANCELATION:
                         logger.warn("Task was cancelled.");
                         break;
-                
+                    
                     case FAILURE:
                         logger.error("Task failed:\n" + event.task.error);
                         break;
-                
+                    
                     default:
                         break;
                 }
             });
             
-            task.start();
-            task.waitFor();
-            return task;
+            apposeTask.start();
+            apposeTask.waitFor();
+            return apposeTask;
             
         } catch (Exception e) {
-            IJ.error(e.toString());
+            logger.error(e.toString());
             return null;
         }
     }
@@ -211,15 +253,16 @@ public class N2V extends DynamicCommand implements Initializable {
 
     private Environment createEnvironment() {
         try {
+            String home = System.getProperty("user.home");
+            String env_dir = Paths.get(home, "appose_careamics_env").toString();
+            
             final Environment env = Appose.uv()
                 .python("3.11")
                 .include("appose>=0.12.0", "careamics==0.3.3")
                 .include("git+https://github.com/CAREamics/careamics-appose.git")
-                .name("careamics_env")
+                .name("appose_careamics_env")
+                .base(env_dir)
                 .logDebug()
-                // .subscribeProgress((msg, curr, max) -> {IJ.log(msg);})
-				// .subscribeOutput((msg) -> {IJ.log(msg);})
-				// .subscribeError(IJ::error)
                 .build();
 
             return env;

@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Any, Literal
 
@@ -8,8 +9,11 @@ from appose.python_worker import Task
 from careamics.careamist import CAREamist
 from careamics.config import create_advanced_n2v_config
 from careamics.config.configuration import Configuration
-from careamics_appose.callbacks import ApposeProgressBarCallback, update_callbacks
-from careamics_appose.utils import numpy_to_shared_memory
+from careamics.lightning.callbacks import (
+    PredictionStoppedException,
+    StopPredictionCallback,
+)
+from careamics_appose import numpy_to_shared_memory, update_careamist_callbacks
 
 SEED = 777
 
@@ -20,6 +24,11 @@ def log(msg: str, end="\n"):
         task.update(msg)
     else:
         print(f"{msg}", end=end)
+
+
+def is_task_cancelled() -> bool:
+    task: Task | None = globals().get("task")
+    return task is not None and task.cancel_requested
 
 
 def create_config(
@@ -60,8 +69,7 @@ def create_config(
 appose_mode = "task" in globals()
 task: Task | None = globals().get("task")
 
-log("starting task")
-log(f"appose mode: {appose_mode}")
+log("Starting the Task...")
 
 # data
 if appose_mode:
@@ -76,11 +84,9 @@ if appose_mode:
     num_epochs = globals().get("num_epochs", 1)
     num_steps = globals().get("num_steps", 100)
     log(
-        f"patch_size: {patch_size}, batch_size: {batch_size}, num_epochs: {num_epochs}, num_steps: {num_steps}"
+        f"patch_size: {patch_size}, batch_size: {batch_size}, "
+        f"num_epochs: {num_epochs}, num_steps: {num_steps}"
     )
-
-else:
-    train_data = np.random.rand(512, 512)
 
 # config
 config = create_config(
@@ -98,24 +104,39 @@ config = create_config(
 )
 
 # careamist
-log("Initializing CAREamist...")
-work_dir = Path("..")
-careamist = CAREamist(config, work_dir=work_dir)
-# update task callbacks if in appose mode
-# so that the task can receive updates from the training process
-if task is not None:
-    update_callbacks(careamist, task)
+if not is_task_cancelled():
+    log("Initializing CAREamist...")
+    work_dir = Path("..")
+    careamist = CAREamist(
+        config,
+        work_dir=work_dir,
+        callbacks=[StopPredictionCallback(is_task_cancelled)],
+    )
 
-# train
-log("starting training...")
-careamist.train(train_data=train_data)
+    # update task callbacks if in appose mode
+    # so that the task can receive updates from the training process
+    if task is not None:
+        update_careamist_callbacks(careamist, task)
+
+
+# training
+if not is_task_cancelled():
+    log("Starting Training...")
+    careamist.train(train_data=train_data)
 
 # prediction
-log("starting prediction...")
-preds, _ = careamist.predict(
-    pred_data=train_data,
-    tile_size=(128, 128),
-)
+if not is_task_cancelled():
+    log("Starting Prediction...")
+    try:
+        preds, _ = careamist.predict(
+            pred_data=train_data,
+            tile_size=(128, 128),
+        )
 
-if task is not None:
-    task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
+        if task is not None:
+            task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
+
+    except PredictionStoppedException:
+        log("Prediction was stopped.")
+    except Exception as e:
+        log(f"An error occurred during prediction: {e}")
