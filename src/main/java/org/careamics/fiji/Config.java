@@ -1,5 +1,8 @@
 package org.careamics.fiji;
 
+import java.util.HashMap;
+import java.util.Map;
+
 
 public class Config {
     public String experimentName;
@@ -10,6 +13,7 @@ public class Config {
     public int numEpochs;
     public int numSteps;
     public String[] augmentations;
+    public int numChannels;
 
     // constructors
     public Config() {
@@ -24,6 +28,7 @@ public class Config {
         int batchSize,
         int numEpochs,
         int numSteps,
+        int numChannels,
         String[] augmentations
     ) {
         this.experimentName = experimentName;
@@ -34,7 +39,23 @@ public class Config {
         this.batchSize = batchSize;
         this.numEpochs = numEpochs;
         this.numSteps = numSteps;
+        this.numChannels = numChannels;
     }
+
+    public Map<String, Object> toDictionary() {
+        Map<String, Object> dict = new HashMap<>();
+        dict.put("experiment_name", experimentName);
+        dict.put("data_type", dataType);
+        dict.put("axes", axes);
+        dict.put("patch_size", patchSize);
+        dict.put("batch_size", batchSize);
+        dict.put("num_epochs", numEpochs);
+        dict.put("num_steps", numSteps);
+        // dict.put("augmentations", augmentations);
+        dict.put("num_channels", numChannels);
+        return dict;
+    }
+
 
     @Override
     public String toString() {
@@ -47,6 +68,7 @@ public class Config {
                 ", numEpochs=" + numEpochs +
                 ", numSteps=" + numSteps +
                 ", augmentations=" + java.util.Arrays.toString(augmentations) +
+                ", numChannels=" + numChannels +
                 '}';
     }
 

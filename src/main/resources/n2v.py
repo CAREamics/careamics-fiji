@@ -52,6 +52,7 @@ def create_config(
     batch_size: int = 8,
     num_epochs: int = 1,
     num_steps: int = 100,
+    num_channels: int = 1,
     augmentations: list = ["x_flip", "y_flip", "rotate_90"],
     n_val_patches: int = 15,
     in_memory: bool = True,
@@ -59,6 +60,9 @@ def create_config(
     seed: int = SEED,
 ) -> Configuration:
     # for creating n2v config from given config parameters
+    if "C" not in axes:
+        num_channels = None
+
     config = create_advanced_n2v_config(
         experiment_name="n2v_appose",
         data_type=data_type,
@@ -67,6 +71,7 @@ def create_config(
         batch_size=batch_size,
         num_epochs=num_epochs,
         num_steps=num_steps,
+        n_channels=num_channels,
         augmentations=augmentations,
         n_val_patches=n_val_patches,
         in_memory=in_memory,
@@ -77,16 +82,17 @@ def create_config(
     return config
 
 
-# ========================= main script =========================
+def get_losses(careamist: "CAREamist") -> dict:
+    report = careamist.get_losses()
+    return {
+        "epoch": report.train_loss.epoch,
+        "train": report.train_loss.value,
+        "val": report.val_loss.value,
+    }
 
-# appose mode
-appose_mode = "task" in globals()
-task: Task | None = globals().get("task")
 
-log("Starting the Task...")
-
-# data
-if appose_mode:
+def run(task: Task | None = None):
+    log("Starting the Task...")
     # get input parameters from appose
     input_image: NDArray | None = globals().get("input_image")
     if input_image is not None:
@@ -98,60 +104,78 @@ if appose_mode:
     batch_size = globals().get("batch_size", 8)
     num_epochs = globals().get("num_epochs", 1)
     num_steps = globals().get("num_steps", 100)
+    num_channels = globals().get("num_channels", 1)
     log(
         f"axes: {axes}, patch_size: {patch_size}, batch_size: {batch_size}, "
-        f"num_epochs: {num_epochs}, num_steps: {num_steps}"
+        f"num_epochs: {num_epochs}, num_steps: {num_steps}, num_channels: {num_channels}"
     )
 
-# config
-config = create_config(
-    data_type="array",
-    axes=axes,
-    patch_size=patch_size,
-    batch_size=batch_size,
-    num_epochs=num_epochs,
-    num_steps=num_steps,
-    augmentations=["x_flip", "y_flip", "rotate_90"],
-    n_val_patches=15,
-    in_memory=True,
-    normalization="mean_std",
-    seed=SEED,
-)
-
-# careamist
-if not is_task_cancelled():
-    log("Initializing CAREamist...")
-    work_dir = Path("..")
-    careamist = CAREamist(
-        config,
-        work_dir=work_dir,
-        callbacks=[StopPredictionCallback(is_task_cancelled)],
+    # config
+    config = create_config(
+        data_type="array",
+        axes=axes,
+        patch_size=patch_size,
+        batch_size=batch_size,
+        num_epochs=num_epochs,
+        num_steps=num_steps,
+        num_channels=num_channels,
+        augmentations=["x_flip", "y_flip", "rotate_90"],
+        n_val_patches=15,
+        in_memory=True,
+        normalization="mean_std",
+        seed=SEED,
     )
 
-    # update task callbacks if in appose mode
-    # so that the task can receive updates from the training process
-    if task is not None:
-        update_careamist_callbacks(careamist, task)
-
-
-# training
-if not is_task_cancelled():
-    log("Starting Training...")
-    careamist.train(train_data=train_data)
-
-# prediction
-if not is_task_cancelled():
-    log("Starting Prediction...")
-    try:
-        preds, _ = careamist.predict(
-            pred_data=train_data,
-            tile_size=(128, 128),
+    if not is_task_cancelled():
+        log("Initializing CAREamist...")
+        work_dir = Path.home() / "careamics_logs"
+        careamist = CAREamist(
+            config,
+            work_dir=work_dir,
+            callbacks=[StopPredictionCallback(is_task_cancelled)],
         )
 
+        # update task callbacks if in appose mode
+        # so that the task can receive updates from the training process
         if task is not None:
-            task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
+            update_careamist_callbacks(careamist, task)
 
-    except PredictionStoppedException:
-        log("Prediction was stopped.")
-    except Exception as e:
-        log(f"An error occurred during prediction: {e}")
+    # training
+    if not is_task_cancelled():
+        log("Starting Training...")
+        careamist.train(train_data=train_data)
+        losses = get_losses(careamist)
+
+    # prediction
+    if not is_task_cancelled():
+        log("Starting Prediction...")
+        tile_size = (128, 128)
+        tile_overlap = (16, 16)
+        if len(patch_size) == 3:
+            tile_size = (patch_size[0], 128, 128)
+            tile_overlap = (2, 16, 16)
+
+        try:
+            preds, _ = careamist.predict(
+                pred_data=train_data,
+                tile_size=tile_size,
+                tile_overlap=tile_overlap,
+            )
+
+            if task is not None:
+                task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
+                task.outputs["losses"] = losses
+
+        except PredictionStoppedException:
+            log("Prediction was stopped.")
+        except Exception as e:
+            log(f"An error occurred during prediction: {e}")
+
+
+# ========================= main script =========================
+
+# appose mode
+appose_mode = "task" in globals()
+task: Task | None = globals().get("task")
+
+run(task=task)

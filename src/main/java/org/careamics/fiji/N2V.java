@@ -5,12 +5,14 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.beans.PropertyChangeListener;
+import java.awt.Color;
 import java.beans.PropertyChangeEvent;
 
 import javax.swing.SwingUtilities;
@@ -53,6 +55,7 @@ import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
 import org.careamics.fiji.gui.MainGUI;
+import org.careamics.fiji.gui.LossPlot;
 import org.careamics.fiji.Config;
 
 
@@ -77,8 +80,8 @@ public class N2V extends DynamicCommand implements Initializable {
 		// ImageJ.main(args);
         final ImageJ ij = new ImageJ();
         ij.ui().showUI();
-		// IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
-        IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
+		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
+        // IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
         
         try (Context context = new Context()) {
             final N2V plugin = new N2V();
@@ -152,10 +155,15 @@ public class N2V extends DynamicCommand implements Initializable {
                     }
                     
                     if (apposeTask.status == TaskStatus.COMPLETE && apposeTask.outputs.containsKey("prediction")) {
+                        final Map<String, ArrayList<Float>> losses = (Map<String, ArrayList<Float>>) apposeTask.outputs.get("losses");
+                        // logger.info("Losses: " + losses.toString());
+                        LossPlot lossPlot = new LossPlot(losses);
+                        
                         final NDArray prediction = (NDArray) apposeTask.outputs.get("prediction");
                         ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
+                        // ImageJFunctions.show(view);
                         ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
-                        ImageJFunctions.show(view);
+                        ImageJFunctions.show(ImageJFunctions.convertFloat(wrapped));
                     }
                 
                 } catch (Exception e) {
@@ -174,7 +182,8 @@ public class N2V extends DynamicCommand implements Initializable {
         
         final String n2vScript = getN2VScript();
         
-        final Map<String, Object> inputs = setPythonInputs(imgp, config);
+        final Map<String, Object> inputs = config.toDictionary();
+        inputs.put("input_image", imageToAppose(imgp));
         
         try (Service python = env.python()) {
             apposeTask = python.task(n2vScript, inputs);
@@ -218,18 +227,6 @@ public class N2V extends DynamicCommand implements Initializable {
             logger.error(e.toString());
             return null;
         }
-    }
-
-    private Map<String, Object> setPythonInputs(final ImagePlus imgp, final Config config) {
-        final Map<String, Object> inputs = new HashMap<>();
-        inputs.put("input_image", imageToAppose(imgp));
-        inputs.put("axes", config.axes);
-        inputs.put("patch_size", config.patchSize);
-        inputs.put("batch_size", config.batchSize);
-        inputs.put("num_epochs", config.numEpochs);
-        inputs.put("num_steps", config.numSteps);
-
-        return inputs;
     }
 
     private <T extends RealType<T> & NativeType<T>> NDArray imageToAppose(final ImagePlus imgp) {

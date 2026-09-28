@@ -174,6 +174,7 @@ public class MainGUI extends JFrame {
             };
         }
         config.patchSize = patchSize;
+        config.numChannels = this.numChannels;
         // config.augmentations = new String[]{};
         return config;
     }
@@ -310,7 +311,7 @@ public class MainGUI extends JFrame {
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 0.8;
-        this.patchZSpin = new JSpinner(new SpinnerNumberModel(8, 8, 998, 2));
+        this.patchZSpin = new JSpinner(new SpinnerNumberModel(8, 4, 998, 2));
         this.patchZSpin.setEnabled(false);
         configPanel.add(this.patchZSpin, gbc);
     
@@ -384,7 +385,7 @@ public class MainGUI extends JFrame {
         this.subProgressBar = new JProgressBar(0, 100);
         this.subProgressBar.setStringPainted(true);
         this.subProgressBar.setMaximum(1);
-        this.subProgressBar.setForeground(Color.getColor("#1ab1eb"));
+        // this.subProgressBar.setForeground(Color.getColor("#1ab1eb"));
         panel.add(this.subProgressBar, gbc);
 
         gbc.gridy++;
