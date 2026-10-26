@@ -4,6 +4,12 @@ from typing import Any, Literal
 
 import appose
 import numpy as np
+from careamics_appose import TaskTQDM
+from tqdm import tqdm
+
+# monkey patch tqdm to use TaskTQDM
+tqdm = TaskTQDM
+
 from appose import NDArray
 from appose.python_worker import Task
 from careamics.careamist import CAREamist
@@ -13,7 +19,11 @@ from careamics.lightning.callbacks import (
     PredictionStoppedException,
     StopPredictionCallback,
 )
-from careamics_appose import numpy_to_shared_memory, update_careamist_callbacks
+from careamics_appose import (
+    TaskTQDM,
+    numpy_to_shared_memory,
+    update_careamist_callbacks,
+)
 
 SEED = 777
 
@@ -43,6 +53,17 @@ def transpose_axes(axes: str) -> str:
         _axes = "T" + _axes
 
     return _axes
+
+
+def get_data_type(train_file: str) -> Literal["tiff", "zarr", "czi", "custom"]:
+    suffix = Path(train_file).suffix.lower()
+    if suffix in [".tif", ".tiff"]:
+        return "tiff"
+    if suffix == ".zarr":
+        return "zarr"
+    if suffix == ".czi":
+        return "czi"
+    return "custom"
 
 
 def create_config(
@@ -97,7 +118,12 @@ def run(task: Task | None = None):
     input_image: NDArray | None = globals().get("input_image")
     if input_image is not None:
         train_data = input_image.ndarray()
+        data_type = "array"
         log(f"input_image: {input_image.shape}")
+    else:
+        train_data = globals().get("train_file")
+        data_type = get_data_type(train_data)
+        log(f"train_file: {train_data}")
 
     axes = transpose_axes(globals().get("axes", "YX"))
     patch_size = globals().get("patch_size", [64, 64])
@@ -112,7 +138,7 @@ def run(task: Task | None = None):
 
     # config
     config = create_config(
-        data_type="array",
+        data_type=data_type,
         axes=axes,
         patch_size=patch_size,
         batch_size=batch_size,

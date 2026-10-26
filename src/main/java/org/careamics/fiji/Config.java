@@ -6,7 +6,7 @@ import java.util.Map;
 
 public class Config {
     public String experimentName;
-    public String dataType;
+    // public String dataType;
     public String axes;
     public int[] patchSize;
     public int batchSize;
@@ -14,6 +14,7 @@ public class Config {
     public int numSteps;
     public String[] augmentations;
     public int numChannels;
+    public String trainFile;
 
     // constructors
     public Config() {
@@ -22,17 +23,18 @@ public class Config {
 
     public Config(
         String experimentName,
-        String dataType,
+        // String dataType,
         String axes,
         int[] patchSize,
         int batchSize,
         int numEpochs,
         int numSteps,
         int numChannels,
-        String[] augmentations
+        String[] augmentations,
+        String trainFile
     ) {
         this.experimentName = experimentName;
-        this.dataType = dataType;
+        // this.dataType = dataType;
         this.axes = axes;
         this.augmentations = augmentations;
         this.patchSize = patchSize;
@@ -40,12 +42,13 @@ public class Config {
         this.numEpochs = numEpochs;
         this.numSteps = numSteps;
         this.numChannels = numChannels;
+        this.trainFile = trainFile;
     }
 
     public Map<String, Object> toDictionary() {
         Map<String, Object> dict = new HashMap<>();
         dict.put("experiment_name", experimentName);
-        dict.put("data_type", dataType);
+        // dict.put("data_type", dataType);
         dict.put("axes", axes);
         dict.put("patch_size", patchSize);
         dict.put("batch_size", batchSize);
@@ -53,6 +56,7 @@ public class Config {
         dict.put("num_steps", numSteps);
         // dict.put("augmentations", augmentations);
         dict.put("num_channels", numChannels);
+        dict.put("train_file", trainFile);
         return dict;
     }
 
@@ -61,7 +65,7 @@ public class Config {
     public String toString() {
         return "Config{" +
                 "experimentName='" + experimentName + '\'' +
-                ", dataType='" + dataType + '\'' +
+                // ", dataType='" + dataType + '\'' +
                 ", axes='" + axes + '\'' +
                 ", patchSize=" + java.util.Arrays.toString(patchSize) +
                 ", batchSize=" + batchSize +
@@ -69,6 +73,7 @@ public class Config {
                 ", numSteps=" + numSteps +
                 ", augmentations=" + java.util.Arrays.toString(augmentations) +
                 ", numChannels=" + numChannels +
+                ", trainFile='" + trainFile + '\'' +
                 '}';
     }
 

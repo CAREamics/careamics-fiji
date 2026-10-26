@@ -9,6 +9,7 @@ import java.beans.PropertyChangeListener;
 
 import javax.swing.*;
 import javax.swing.event.SwingPropertyChangeSupport;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.careamics.fiji.Config;
 
@@ -32,11 +33,14 @@ public class MainGUI extends JFrame {
 
     protected Config config;
     protected String axes = "XY";
-    protected String dataType = "array";
+    // protected String dataType = "array";
     protected String imgName;
     protected int numChannels;
     protected int numSlices;
     protected int numFrames;
+    protected boolean fromFile;
+    protected String selectedFile;
+    protected final JFileChooser fileChooser = new JFileChooser();
 
     private SwingPropertyChangeSupport pcSupport = new SwingPropertyChangeSupport(this);
 
@@ -56,13 +60,15 @@ public class MainGUI extends JFrame {
         int numFrames
     ) {
         super("CAREamics");
-        setAlwaysOnTop(true);
+        // setAlwaysOnTop(true);
         
         // image name and dimensions
         this.imgName = imgName;
         this.numChannels = numChannels;
         this.numSlices = numSlices;
         this.numFrames = numFrames;
+        
+        configfileChooser();
         
         setLayout(new BorderLayout());
         
@@ -78,6 +84,13 @@ public class MainGUI extends JFrame {
         mainPanel.add(createTitlePanel(), gbc);
         
         gbc.anchor = GridBagConstraints.NORTH;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(5, 50, 5, 50);
+        gbc.gridy++;
+        gbc.weighty = 0.2;
+        mainPanel.add(createInputPanel(), gbc);
+
+        gbc.anchor = GridBagConstraints.CENTER;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.insets = new Insets(5, 50, 5, 50);
         gbc.gridy++;
@@ -158,7 +171,7 @@ public class MainGUI extends JFrame {
         config.batchSize = (Integer) this.batchSizeSpin.getValue();
         config.numEpochs = (Integer) this.numEpochsSpin.getValue();
         config.numSteps = (Integer) this.numStepsSpin.getValue();
-        config.dataType = this.dataType;
+        // config.dataType = this.dataType;
         // axes
         config.axes = this.axesField.getText().toUpperCase() + "YX";
         // patch size
@@ -176,6 +189,10 @@ public class MainGUI extends JFrame {
         config.patchSize = patchSize;
         config.numChannels = this.numChannels;
         // config.augmentations = new String[]{};
+        if (this.fromFile) {
+            config.trainFile = this.selectedFile;
+        }
+
         return config;
     }
 
@@ -194,6 +211,68 @@ public class MainGUI extends JFrame {
         titlePanel.add(titleLabel, BorderLayout.CENTER);
 
         return titlePanel;
+    }
+
+    protected JPanel createInputPanel() {
+        JPanel inputPanel = new JPanel();
+        inputPanel.setLayout(new GridBagLayout());
+        
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 0, 10, 0);
+        gbc.weighty = 1.0;
+        gbc.gridwidth = 1;
+        
+        // Add radiobuttons for selecting current image or from file
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0.1;
+        inputPanel.add(new JLabel("Input Image:", SwingConstants.RIGHT), gbc);
+        
+        JRadioButton currentImageRadio = new JRadioButton("Current Image", true);
+        JRadioButton fromFileRadio = new JRadioButton("From File");
+        ButtonGroup inputGroup = new ButtonGroup();
+        inputGroup.add(currentImageRadio);
+        inputGroup.add(fromFileRadio);
+        JPanel radioPanel = new JPanel(new BorderLayout());
+        radioPanel.add(currentImageRadio, BorderLayout.WEST);
+        radioPanel.add(fromFileRadio, BorderLayout.EAST);
+        gbc.gridx = 1;
+        inputPanel.add(radioPanel, gbc);
+        
+        // add select input image file
+        gbc.gridy++;
+        gbc.gridx = 0;
+        gbc.weightx = 0.1;
+        inputPanel.add(new JLabel("Select Image:", SwingConstants.RIGHT), gbc);
+
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 0.8;
+        JTextField fileField = new JTextField();
+        fileField.setEditable(false);
+        JButton browseButton = new JButton("Browse");
+        browseButton.setEnabled(false);
+        JPanel filePanel = new JPanel(new BorderLayout());
+        filePanel.add(fileField, BorderLayout.CENTER);
+        filePanel.add(browseButton, BorderLayout.EAST);
+        inputPanel.add(filePanel, gbc);
+        
+        // actions
+        fromFileRadio.addChangeListener(e -> {
+            browseButton.setEnabled(fromFileRadio.isSelected());
+            this.fromFile = fromFileRadio.isSelected();
+        });
+        browseButton.addActionListener(e -> {
+            int returnVal = this.fileChooser.showOpenDialog(this);
+            if (returnVal == JFileChooser.APPROVE_OPTION) {
+                this.selectedFile = this.fileChooser.getSelectedFile().getAbsolutePath();
+                fileField.setText(this.selectedFile);
+            }
+        });
+
+        return inputPanel;
     }
 
     protected JPanel createConfigPanel() {
@@ -219,7 +298,7 @@ public class MainGUI extends JFrame {
         String ex_name = this.imgName == null ? "n2v" : this.imgName + "_n2v";
         this.experimentNameField = new JTextField(ex_name);
         configPanel.add(this.experimentNameField, gbc);
-    
+        
         // axes
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
@@ -405,4 +484,14 @@ public class MainGUI extends JFrame {
         return panel;
     }
 
+    protected void configfileChooser() {
+        fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        fileChooser.setMultiSelectionEnabled(false);
+        fileChooser.setAcceptAllFileFilterUsed(false);
+        FileNameExtensionFilter imageFilter = new FileNameExtensionFilter(
+            "Image Files (tif, jpg, png, czi, zarr)",
+            "jpg", "jpeg", "png", "tif", "tiff", "czi", "zarr"
+        );
+        fileChooser.setFileFilter(imageFilter);
+    }
 }

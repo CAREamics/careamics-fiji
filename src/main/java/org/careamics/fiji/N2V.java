@@ -176,6 +176,12 @@ public class N2V extends DynamicCommand implements Initializable {
     }
 
     private Task processImage(final ImagePlus imgp, final Config config) {
+        // make sure there is an image to process
+        if (imgp == null || config.trainFile == null) {
+            logger.error("No image or training file provided.");
+            return null;
+        }
+
         logger.info("creating the python uv environment...");
         this.apposeEnv = createEnvironment();
         final Environment env = this.apposeEnv;
@@ -183,7 +189,9 @@ public class N2V extends DynamicCommand implements Initializable {
         final String n2vScript = getN2VScript();
         
         final Map<String, Object> inputs = config.toDictionary();
-        inputs.put("input_image", imageToAppose(imgp));
+        if (config.trainFile == null) {
+            inputs.put("input_image", imageToAppose(imgp));
+        }
         
         try (Service python = env.python()) {
             apposeTask = python.task(n2vScript, inputs);
@@ -257,10 +265,18 @@ public class N2V extends DynamicCommand implements Initializable {
             
             final Environment env = Appose.uv()
                 .python("3.11")
-                .include("appose>=0.12.0", "careamics==0.3.3")
+                .include("appose>=0.12.0", "careamics==0.3.5")
                 .include("git+https://github.com/CAREamics/careamics-appose.git")
                 .name("appose_careamics_env")
                 .base(env_dir)
+                .subscribeProgress((title, current, maximum) -> {
+                    logger.info(title + ": " + current + "/" + maximum);
+                    SwingUtilities.invokeLater(() -> {
+                        this.mainGUI.updateProgress(title, current, maximum);
+                    });
+                })
+                // .subscribeOutput(line -> logger.info(line))
+                // .subscribeError(line -> logger.info(line))
                 .logDebug()
                 .build();
 
