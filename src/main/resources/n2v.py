@@ -112,7 +112,7 @@ def get_losses(careamist: "CAREamist") -> dict:
     }
 
 
-def run(task: Task | None = None):
+def train(task: Task | None = None):
     log("Starting the Task...")
     # get input parameters from appose
     input_image: NDArray | None = globals().get("input_image")
@@ -170,32 +170,34 @@ def run(task: Task | None = None):
     if not is_task_cancelled():
         log("Starting Training...")
         careamist.train(train_data=train_data)
+
         losses = get_losses(careamist)
+        task.outputs["losses"] = losses
 
-    # prediction
-    if not is_task_cancelled():
-        log("Starting Prediction...")
-        tile_size = (128, 128)
-        tile_overlap = (16, 16)
-        if len(patch_size) == 3:
-            tile_size = (patch_size[0], 128, 128)
-            tile_overlap = (2, 16, 16)
+    # # prediction
+    # if not is_task_cancelled():
+    #     log("Starting Prediction...")
+    #     tile_size = (128, 128)
+    #     tile_overlap = (16, 16)
+    #     if len(patch_size) == 3:
+    #         tile_size = (patch_size[0], 128, 128)
+    #         tile_overlap = (2, 16, 16)
 
-        try:
-            preds, _ = careamist.predict(
-                pred_data=train_data,
-                tile_size=tile_size,
-                tile_overlap=tile_overlap,
-            )
+    #     try:
+    #         preds, _ = careamist.predict(
+    #             pred_data=train_data,
+    #             tile_size=tile_size,
+    #             tile_overlap=tile_overlap,
+    #         )
 
-            if task is not None:
-                task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
-                task.outputs["losses"] = losses
+    #         if task is not None:
+    #             task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
+    #             task.outputs["losses"] = losses
 
-        except PredictionStoppedException:
-            log("Prediction was stopped.")
-        except Exception as e:
-            log(f"An error occurred during prediction: {e}")
+    #     except PredictionStoppedException:
+    #         log("Prediction was stopped.")
+    #     except Exception as e:
+    #         log(f"An error occurred during prediction: {e}")
 
 
 # ========================= main script =========================
@@ -204,4 +206,4 @@ def run(task: Task | None = None):
 appose_mode = "task" in globals()
 task: Task | None = globals().get("task")
 
-run(task=task)
+train(task=task)

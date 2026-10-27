@@ -26,10 +26,10 @@ public class MainGUI extends JFrame {
     protected JSpinner batchSizeSpin;
     protected JSpinner numEpochsSpin;
     protected JSpinner numStepsSpin;
-    protected JProgressBar mainProgressBar;
-    protected JProgressBar subProgressBar;
-    protected JButton runButton;
-    protected JButton stopButton;
+    protected JProgressBar trainProgressBar;
+    protected JProgressBar valProgressBar;
+    protected JButton trainButton;
+    protected JButton trainStopButton;
 
     protected Config config;
     protected String axes = "XY";
@@ -38,9 +38,8 @@ public class MainGUI extends JFrame {
     protected int numChannels;
     protected int numSlices;
     protected int numFrames;
-    protected boolean fromFile;
-    protected String selectedFile;
-    protected final JFileChooser fileChooser = new JFileChooser();
+    protected InputDataPanel trainDataPanel;
+    protected InputDataPanel predictionDataPanel;
 
     private SwingPropertyChangeSupport pcSupport = new SwingPropertyChangeSupport(this);
 
@@ -68,8 +67,6 @@ public class MainGUI extends JFrame {
         this.numSlices = numSlices;
         this.numFrames = numFrames;
         
-        configfileChooser();
-        
         setLayout(new BorderLayout());
         
         JPanel mainPanel = new JPanel(new GridBagLayout());
@@ -83,48 +80,42 @@ public class MainGUI extends JFrame {
         gbc.weighty = 0.1;
         mainPanel.add(createTitlePanel(), gbc);
         
-        gbc.anchor = GridBagConstraints.NORTH;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(5, 50, 5, 50);
-        gbc.gridy++;
-        gbc.weighty = 0.2;
-        mainPanel.add(createInputPanel(), gbc);
-
-        gbc.anchor = GridBagConstraints.CENTER;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.insets = new Insets(5, 50, 5, 50);
+        // create tabs for input and config panels
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.addTab("Training", createTrainingPanel());
+        tabbedPane.addTab("Prediction", createPredictionPanel());
         gbc.gridy++;
         gbc.weighty = 2.0;
-        mainPanel.add(createConfigPanel(), gbc);
-
-        gbc.anchor = GridBagConstraints.SOUTH;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(5, 10, 5, 10);
-        gbc.gridy++;
-        gbc.weighty = 0.05;
-        mainPanel.add(createBottomPanel(), gbc);
-
+        mainPanel.add(tabbedPane, gbc);
+        
+        // add bottom panel with run and stop buttons
+        // gbc.anchor = GridBagConstraints.SOUTH;
+        // gbc.fill = GridBagConstraints.HORIZONTAL;
+        // gbc.insets = new Insets(5, 10, 5, 10);
+        // gbc.gridy++;
+        // gbc.weighty = 0.05;
+        // mainPanel.add(createTrainingProgressPanel(), gbc);
+        
         add(mainPanel, BorderLayout.CENTER);
-
-
-        this.runButton.addActionListener(e -> {
-            this.runButton.setEnabled(false);
-            this.stopButton.setEnabled(true);
-
+        
+        this.trainButton.addActionListener(e -> {
+            this.trainButton.setEnabled(false);
+            this.trainStopButton.setEnabled(true);
+        
             this.config = createConfig();
             // dispatch the config event
             pcSupport.firePropertyChange(CONFIGREADY, null, this.config);
         });
-
-        this.stopButton.addActionListener(e -> {
-            this.stopButton.setEnabled(false);
-            this.mainProgressBar.setIndeterminate(true);
-            this.mainProgressBar.setString("Stopping...");
+        
+        this.trainStopButton.addActionListener(e -> {
+            this.trainStopButton.setEnabled(false);
+            this.trainProgressBar.setIndeterminate(true);
+            this.trainProgressBar.setString("Stopping...");
             
             pcSupport.firePropertyChange(CANCELREQUESTED, null, null);
         });
-
-        setSize(420, 540);
+        
+        setSize(420, 650);
         // pack();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -141,28 +132,28 @@ public class MainGUI extends JFrame {
 
     public void updateProgress(String msg, long current, long maximum) {
         if (msg.toLowerCase().contains("train")) {
-            this.mainProgressBar.setValue((int) current);
-            this.mainProgressBar.setMaximum((int)maximum);
-            this.mainProgressBar.setString(msg);
+            this.trainProgressBar.setValue((int) current);
+            this.trainProgressBar.setMaximum((int)maximum);
+            this.trainProgressBar.setString(msg);
         } else {
-            this.subProgressBar.setValue((int)current);
-            this.subProgressBar.setMaximum((int)maximum);
-            this.subProgressBar.setString(msg);
+            this.valProgressBar.setValue((int)current);
+            this.valProgressBar.setMaximum((int)maximum);
+            this.valProgressBar.setString(msg);
         }
 
-        this.mainProgressBar.repaint();
-        this.subProgressBar.repaint();
+        this.trainProgressBar.repaint();
+        this.valProgressBar.repaint();
     }
 
     public void reset() {
-        this.runButton.setEnabled(true);
-        this.stopButton.setEnabled(false);
+        this.trainButton.setEnabled(true);
+        this.trainStopButton.setEnabled(false);
         
-        this.mainProgressBar.setIndeterminate(false);
-        this.mainProgressBar.setValue(0);
-        this.mainProgressBar.setString("0%");
-        this.subProgressBar.setValue(0);
-        this.subProgressBar.setString("0%");
+        this.trainProgressBar.setIndeterminate(false);
+        this.trainProgressBar.setValue(0);
+        this.trainProgressBar.setString("0%");
+        this.valProgressBar.setValue(0);
+        this.valProgressBar.setString("0%");
     }
 
     protected Config createConfig() {
@@ -189,8 +180,8 @@ public class MainGUI extends JFrame {
         config.patchSize = patchSize;
         config.numChannels = this.numChannels;
         // config.augmentations = new String[]{};
-        if (this.fromFile) {
-            config.trainFile = this.selectedFile;
+        if (this.trainDataPanel.fromFile) {
+            config.trainFile = this.trainDataPanel.selectedFile;
         }
 
         return config;
@@ -213,70 +204,51 @@ public class MainGUI extends JFrame {
         return titlePanel;
     }
 
-    protected JPanel createInputPanel() {
-        JPanel inputPanel = new JPanel();
-        inputPanel.setLayout(new GridBagLayout());
+    protected JPanel createTrainingPanel() {
+        JPanel basePanel = new JPanel();
+        basePanel.setLayout(new GridBagLayout());
+        
+        this.trainDataPanel = new InputDataPanel("Data");
+        JPanel configPanel = createTrainingConfigPanel();
+        JPanel progressPanel = createTrainingProgressPanel();
         
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(0, 0, 10, 0);
-        gbc.weighty = 1.0;
-        gbc.gridwidth = 1;
-        
-        // Add radiobuttons for selecting current image or from file
-        gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.weightx = 0.1;
-        inputPanel.add(new JLabel("Input Image:", SwingConstants.RIGHT), gbc);
+        gbc.weighty = 0.2;
+        basePanel.add(this.trainDataPanel, gbc);
         
-        JRadioButton currentImageRadio = new JRadioButton("Current Image", true);
-        JRadioButton fromFileRadio = new JRadioButton("From File");
-        ButtonGroup inputGroup = new ButtonGroup();
-        inputGroup.add(currentImageRadio);
-        inputGroup.add(fromFileRadio);
-        JPanel radioPanel = new JPanel(new BorderLayout());
-        radioPanel.add(currentImageRadio, BorderLayout.WEST);
-        radioPanel.add(fromFileRadio, BorderLayout.EAST);
-        gbc.gridx = 1;
-        inputPanel.add(radioPanel, gbc);
-        
-        // add select input image file
+        gbc.insets = new Insets(0, 0, 0, 0);
         gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.weightx = 0.1;
-        inputPanel.add(new JLabel("Select Image:", SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
-        JTextField fileField = new JTextField();
-        fileField.setEditable(false);
-        JButton browseButton = new JButton("Browse");
-        browseButton.setEnabled(false);
-        JPanel filePanel = new JPanel(new BorderLayout());
-        filePanel.add(fileField, BorderLayout.CENTER);
-        filePanel.add(browseButton, BorderLayout.EAST);
-        inputPanel.add(filePanel, gbc);
+        basePanel.add(configPanel, gbc);
+        gbc.gridy++;
+        basePanel.add(progressPanel, gbc);
         
-        // actions
-        fromFileRadio.addChangeListener(e -> {
-            browseButton.setEnabled(fromFileRadio.isSelected());
-            this.fromFile = fromFileRadio.isSelected();
-        });
-        browseButton.addActionListener(e -> {
-            int returnVal = this.fileChooser.showOpenDialog(this);
-            if (returnVal == JFileChooser.APPROVE_OPTION) {
-                this.selectedFile = this.fileChooser.getSelectedFile().getAbsolutePath();
-                fileField.setText(this.selectedFile);
-            }
-        });
-
-        return inputPanel;
+        return basePanel;
     }
 
-    protected JPanel createConfigPanel() {
+    protected JPanel createPredictionPanel() {
+        JPanel basePanel = new JPanel();
+        basePanel.setLayout(new GridBagLayout());
+        
+        this.predictionDataPanel = new InputDataPanel("Data");
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 0, 10, 0);
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weighty = 0.2;
+        basePanel.add(this.predictionDataPanel, gbc);
+        
+        return basePanel;
+    }
+
+    protected JPanel createTrainingConfigPanel() {
         JPanel configPanel = new JPanel();
+        configPanel.setBorder(BorderFactory.createTitledBorder("Configuration"));
         configPanel.setLayout(new GridBagLayout());
         
         GridBagConstraints gbc = new GridBagConstraints();
@@ -289,14 +261,16 @@ public class MainGUI extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0.1;
+        gbc.ipady = 5;
         configPanel.add(new JLabel("Experiment Name:", SwingConstants.RIGHT), gbc);
         
+        String ex_name = this.imgName == null ? "n2v" : this.imgName + "_n2v";
+        this.experimentNameField = new JTextField(ex_name);
         gbc.gridx = 1;
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 0.8;
-        String ex_name = this.imgName == null ? "n2v" : this.imgName + "_n2v";
-        this.experimentNameField = new JTextField(ex_name);
+        gbc.ipady = 0;
         configPanel.add(this.experimentNameField, gbc);
         
         // axes
@@ -443,7 +417,7 @@ public class MainGUI extends JFrame {
         return configPanel;
     }
 
-    protected JPanel createBottomPanel() {
+    protected JPanel createTrainingProgressPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new GridBagLayout());
 
@@ -455,17 +429,17 @@ public class MainGUI extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(2, 5, 2, 5);
 
-        this.mainProgressBar = new JProgressBar(0, 100);
-        this.mainProgressBar.setStringPainted(true);
-        this.mainProgressBar.setMaximum(1);
-        panel.add(this.mainProgressBar, gbc);
+        this.trainProgressBar = new JProgressBar(0, 100);
+        this.trainProgressBar.setStringPainted(true);
+        this.trainProgressBar.setMaximum(1);
+        panel.add(this.trainProgressBar, gbc);
 
         gbc.gridy++;
-        this.subProgressBar = new JProgressBar(0, 100);
-        this.subProgressBar.setStringPainted(true);
-        this.subProgressBar.setMaximum(1);
+        this.valProgressBar = new JProgressBar(0, 100);
+        this.valProgressBar.setStringPainted(true);
+        this.valProgressBar.setMaximum(1);
         // this.subProgressBar.setForeground(Color.getColor("#1ab1eb"));
-        panel.add(this.subProgressBar, gbc);
+        panel.add(this.valProgressBar, gbc);
 
         gbc.gridy++;
         gbc.insets = new Insets(15, 5, 2, 5);
@@ -473,25 +447,15 @@ public class MainGUI extends JFrame {
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0.5;
         gbc.gridx = 0;
-        this.runButton = new JButton("Run");
-        panel.add(this.runButton, gbc);
+        this.trainButton = new JButton("Train");
+        panel.add(this.trainButton, gbc);
 
         gbc.gridx = 1;
-        this.stopButton = new JButton("Stop");
-        this.stopButton.setEnabled(false);
-        panel.add(this.stopButton, gbc);
+        this.trainStopButton = new JButton("Stop");
+        this.trainStopButton.setEnabled(false);
+        panel.add(this.trainStopButton, gbc);
 
         return panel;
     }
 
-    protected void configfileChooser() {
-        fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-        fileChooser.setMultiSelectionEnabled(false);
-        fileChooser.setAcceptAllFileFilterUsed(false);
-        FileNameExtensionFilter imageFilter = new FileNameExtensionFilter(
-            "Image Files (tif, jpg, png, czi, zarr)",
-            "jpg", "jpeg", "png", "tif", "tiff", "czi", "zarr"
-        );
-        fileChooser.setFileFilter(imageFilter);
-    }
 }
