@@ -75,7 +75,7 @@ public class LossPlot extends JFrame{
         this.add(chartPanel);
         this.setSize(new Dimension(640, 400));
         this.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        this.setVisible(true);
+        // this.setVisible(true);
 
     }
 

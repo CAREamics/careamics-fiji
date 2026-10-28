@@ -56,7 +56,6 @@ import org.scijava.plugin.Plugin;
 
 import org.careamics.fiji.gui.MainGUI;
 import org.careamics.fiji.gui.LossPlot;
-import org.careamics.fiji.Config;
 
 
 @Plugin(type = Command.class, menuPath = "Plugins>CAREamics>Noise2Void")
@@ -65,6 +64,7 @@ public class N2V extends DynamicCommand implements Initializable {
     @Parameter
     private LogService logger;
 
+    protected String trainedModelPath;
     protected MainGUI mainGUI;
     protected Environment apposeEnv;
     protected Task apposeTask;
@@ -81,7 +81,7 @@ public class N2V extends DynamicCommand implements Initializable {
         final ImageJ ij = new ImageJ();
         ij.ui().showUI();
 		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
-        // IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
+        IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
         
         try (Context context = new Context()) {
             final N2V plugin = new N2V();
@@ -92,37 +92,20 @@ public class N2V extends DynamicCommand implements Initializable {
 
     @Override
     public void run() {
-        // get the current image
-        ImagePlus imgp = WindowManager.getCurrentImage();
-        if (imgp == null) {
-            IJ.error("No image is available.");
-            return;
-        }
-        
-        // width, height, nChannels, nSlices, nFrames
-        int[] dims = imgp.getDimensions();
-        logger.info("Image dimensions: " + Arrays.toString(dims));
-        int num_channels = dims[2];
-        int num_slices = dims[3];
-        int num_frames = dims[4];
-        // get the iamge name and drop the file extension from the image name
-        String img_name = imgp.getTitle();
-        img_name = img_name.contains(".") ? img_name.substring(0, img_name.lastIndexOf(".")) : img_name;
-        
         // show the main GUI
-        this.mainGUI = new MainGUI(img_name, num_channels, num_slices, num_frames);
+        this.mainGUI = new MainGUI();
         GUI.center(this.mainGUI);
         
         mainGUI.addPropertyChangeListener(evt -> {
-            if (evt.getPropertyName() == MainGUI.CONFIGREADY) {
+            if (evt.getPropertyName() == MainGUI.START_TRAINING) {
                 Config config = (Config) evt.getNewValue();
                 logger.info("Configuration: " + config.toString());
-            
+                
                 // run the image processing task in the background
-                this.taskWorker = createTaskWorker(imgp, config);
+                this.taskWorker = createTrainWorker(config);
                 this.taskWorker.execute();
             
-            } else if (evt.getPropertyName() == MainGUI.CANCELREQUESTED) {
+            } else if (evt.getPropertyName() == MainGUI.CANCEL_REQUESTED) {
                 logger.info("Task cancellation requested.");
                 if (apposeTask != null) {
                     logger.info(apposeTask);
@@ -133,11 +116,11 @@ public class N2V extends DynamicCommand implements Initializable {
         
     }
 
-    private SwingWorker<Task, Task> createTaskWorker(final ImagePlus imgp, final Config config) {
+    private SwingWorker<Task, Task> createTrainWorker(final Config config) {
         return new SwingWorker<>() {
             @Override
             protected Task doInBackground() throws Exception {
-                apposeTask = processImage(imgp, config);
+                apposeTask = trainProcess(config);
 
                 return apposeTask;
             }
@@ -154,16 +137,19 @@ public class N2V extends DynamicCommand implements Initializable {
                         throw new RuntimeException("Python script failed with error: " + apposeTask.error);
                     }
                     
-                    if (apposeTask.status == TaskStatus.COMPLETE && apposeTask.outputs.containsKey("prediction")) {
+                    if (apposeTask.status == TaskStatus.COMPLETE) {
                         final Map<String, ArrayList<Float>> losses = (Map<String, ArrayList<Float>>) apposeTask.outputs.get("losses");
-                        // logger.info("Losses: " + losses.toString());
+                        // get the checkpoint path
+                        trainedModelPath = (String) apposeTask.outputs.get("checkpoint_path");
+                        // show the loss plot
                         LossPlot lossPlot = new LossPlot(losses);
+                        lossPlot.setVisible(true);
                         
-                        final NDArray prediction = (NDArray) apposeTask.outputs.get("prediction");
-                        ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
-                        // ImageJFunctions.show(view);
-                        ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
-                        ImageJFunctions.show(ImageJFunctions.convertFloat(wrapped));
+                        // final NDArray prediction = (NDArray) apposeTask.outputs.get("prediction");
+                        // ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
+                        // // ImageJFunctions.show(view);
+                        // ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
+                        // ImageJFunctions.show(ImageJFunctions.convertFloat(wrapped));
                     }
                 
                 } catch (Exception e) {
@@ -175,25 +161,37 @@ public class N2V extends DynamicCommand implements Initializable {
         };
     }
 
-    private Task processImage(final ImagePlus imgp, final Config config) {
-        // make sure there is an image to process
-        if (imgp == null || config.trainFile == null) {
+    private Task trainProcess(final Config config) {
+        final Map<String, Object> inputs = config.toDictionary();
+        
+        // make sure there is an image for training
+        if (config.trainSource == null) {
             logger.error("No image or training file provided.");
             return null;
         }
-
-        logger.info("creating the python uv environment...");
-        this.apposeEnv = createEnvironment();
-        final Environment env = this.apposeEnv;
-        
-        final String n2vScript = getN2VScript();
-        
-        final Map<String, Object> inputs = config.toDictionary();
-        if (config.trainFile == null) {
-            inputs.put("input_image", imageToAppose(imgp));
+        if (config.fromDisk == false) {
+            // get the image from the window manager
+            final ImagePlus imgp = WindowManager.getImage(config.trainSource);
+            if (imgp == null) {
+                logger.error("Image was not found: " + config.trainSource);
+                return null;
+            } else {
+                inputs.put("input_image", imageToAppose(imgp));
+            }
         }
         
-        try (Service python = env.python()) {
+        // python environment
+        if (this.apposeEnv == null) {
+            logger.info("creating the python environment...");
+            this.apposeEnv = createEnvironment();
+        }
+        // get the python script
+        final String n2vScript = getN2VScript();
+        
+        // train mode
+        inputs.put("training", true);
+        
+        try (Service python = this.apposeEnv.python()) {
             apposeTask = python.task(n2vScript, inputs);
             
             // listen for task updates

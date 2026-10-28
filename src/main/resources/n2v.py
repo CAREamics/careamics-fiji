@@ -5,6 +5,7 @@ from typing import Any, Literal
 import appose
 import numpy as np
 from careamics_appose import TaskTQDM
+from lightning.pytorch.callbacks import ModelCheckpoint
 from tqdm import tqdm
 
 # monkey patch tqdm to use TaskTQDM
@@ -73,17 +74,14 @@ def create_config(
     batch_size: int = 8,
     num_epochs: int = 1,
     num_steps: int = 100,
-    num_channels: int = 1,
+    num_channels: int | None = None,
     augmentations: list = ["x_flip", "y_flip", "rotate_90"],
     n_val_patches: int = 15,
-    in_memory: bool = True,
+    # in_memory: bool = True,
     normalization: Literal["mean_std", "min_max", "quantile", "none"] = "mean_std",
     seed: int = SEED,
 ) -> Configuration:
     # for creating n2v config from given config parameters
-    if "C" not in axes:
-        num_channels = None
-
     config = create_advanced_n2v_config(
         experiment_name="n2v_appose",
         data_type=data_type,
@@ -95,7 +93,7 @@ def create_config(
         n_channels=num_channels,
         augmentations=augmentations,
         n_val_patches=n_val_patches,
-        in_memory=in_memory,
+        # in_memory=in_memory,
         normalization=normalization,
         num_workers=3,
         seed=seed,
@@ -113,27 +111,36 @@ def get_losses(careamist: "CAREamist") -> dict:
 
 
 def train(task: Task | None = None):
-    log("Starting the Task...")
+    log("Starting the training...")
     # get input parameters from appose
-    input_image: NDArray | None = globals().get("input_image")
-    if input_image is not None:
-        train_data = input_image.ndarray()
-        data_type = "array"
-        log(f"input_image: {input_image.shape}")
-    else:
-        train_data = globals().get("train_file")
-        data_type = get_data_type(train_data)
-        log(f"train_file: {train_data}")
-
     axes = transpose_axes(globals().get("axes", "YX"))
     patch_size = globals().get("patch_size", [64, 64])
     batch_size = globals().get("batch_size", 8)
     num_epochs = globals().get("num_epochs", 1)
     num_steps = globals().get("num_steps", 100)
-    num_channels = globals().get("num_channels", 1)
+
+    input_image: NDArray | None = globals().get("input_image")
+    if input_image is not None:
+        train_data = input_image.ndarray()
+        data_type = "array"
+        num_channels = globals().get("num_channels", 1)
+        log(f"input_image: {input_image.shape}")
+    else:
+        train_data = globals().get("train_source")
+        data_type = get_data_type(train_data)
+        num_channels = None
+        log(f"train_source: {train_data}")
+
+    if "C" not in axes:
+        num_channels = None
+    elif num_channels is None:
+        # drop C from axes
+        axes = axes.replace("C", "")
+        # raise ValueError("Number of channels must be specified if 'C' is in axes.")
+
     log(
-        f"axes: {axes}, patch_size: {patch_size}, batch_size: {batch_size}, "
-        f"num_epochs: {num_epochs}, num_steps: {num_steps}, num_channels: {num_channels}"
+        f"axes: {axes}, num_channels: {num_channels}, patch_size: {patch_size}, "
+        f"batch_size: {batch_size}, num_epochs: {num_epochs}, num_steps: {num_steps}"
     )
 
     # config
@@ -147,7 +154,7 @@ def train(task: Task | None = None):
         num_channels=num_channels,
         augmentations=["x_flip", "y_flip", "rotate_90"],
         n_val_patches=15,
-        in_memory=True,
+        # in_memory=True,
         normalization="mean_std",
         seed=SEED,
     )
@@ -174,6 +181,29 @@ def train(task: Task | None = None):
         losses = get_losses(careamist)
         task.outputs["losses"] = losses
 
+        for cb in careamist.callbacks:
+            if isinstance(cb, ModelCheckpoint):
+                checkpoint_path = cb.best_model_path
+                if checkpoint_path is None:
+                    checkpoint_path = cb.last_model_path
+                task.outputs["checkpoint_path"] = checkpoint_path
+                log(f"model checkpoint: {checkpoint_path}")
+
+
+def predict(task: Task | None = None):
+    log("Starting the prediction...")
+    # get input parameters from appose
+    input_image: NDArray | None = globals().get("input_image")
+    if input_image is not None:
+        train_data = input_image.ndarray()
+        data_type = "array"
+        # num_channels = globals().get("num_channels", 1)
+        log(f"input_image: {input_image.shape}")
+    else:
+        pred_data = globals().get("pred_source")
+        data_type = get_data_type(pred_data)
+        # num_channels = None
+        log(f"pred_source: {pred_data}")
     # # prediction
     # if not is_task_cancelled():
     #     log("Starting Prediction...")
@@ -206,4 +236,8 @@ def train(task: Task | None = None):
 appose_mode = "task" in globals()
 task: Task | None = globals().get("task")
 
-train(task=task)
+if task is not None:
+    if globals().get("training", False):
+        train(task=task)
+    else:
+        predict(task=task)

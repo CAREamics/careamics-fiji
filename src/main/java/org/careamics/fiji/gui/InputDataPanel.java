@@ -3,6 +3,7 @@ package org.careamics.fiji.gui;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -17,13 +18,18 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 
+import ij.WindowManager;
+
 
 public class InputDataPanel extends JPanel {
+    public static final String FROM_DISK = "fromDisk";
+    public static final String IMAGE_SELECTED = "imageSelected";
     
-    public boolean fromFile;
-    public String selectedFile;
-    public final JFileChooser fileChooser = new JFileChooser();
-
+    public boolean fromDisk;
+    public String selectedImage;
+    protected final JFileChooser fileChooser = new JFileChooser();
+    
+    
     public InputDataPanel(String title) {
         if (title == null || title.isEmpty()) {
             title = "Data";
@@ -31,73 +37,96 @@ public class InputDataPanel extends JPanel {
         
         this.setBorder(BorderFactory.createTitledBorder(title));
         this.setLayout(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.anchor = GridBagConstraints.NORTH;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 0, 0, 0);
-        gbc.gridwidth = 2;
-        gbc.gridheight = 1;
         
-        // train image
-        // add radiobuttons for selecting current image or from file
-        JRadioButton currentImageRadio = new JRadioButton("Current Image", true);
+        // add radiobuttons for selecting from opened images or from file
+        JRadioButton selectImageRadio = new JRadioButton("Select Image", true);
         JRadioButton fromFileRadio = new JRadioButton("From File/Folder");
         ButtonGroup inputGroup = new ButtonGroup();
-        inputGroup.add(currentImageRadio);
+        inputGroup.add(selectImageRadio);
         inputGroup.add(fromFileRadio);
-        JPanel radioPanel = new JPanel(new BorderLayout());
-        radioPanel.add(currentImageRadio, BorderLayout.WEST);
-        radioPanel.add(fromFileRadio, BorderLayout.EAST);
         
-        gbc.gridy = 0;
-        gbc.gridx = 0;
-        gbc.weighty = 0.2;
-        gbc.ipady = 5;
-        this.add(radioPanel, gbc);
+        // image source selection components
+        JComboBox<String> imageSourceCombo = new JComboBox<>();
+        for (String img_title : WindowManager.getImageTitles()) {
+            imageSourceCombo.addItem(img_title);
+        }
+        imageSourceCombo.setSelectedIndex(-1);
+        imageSourceCombo.setEditable(false);
+        // button to refresh the list of currently opened images
+        JButton refreshButton = new JButton("Refresh");
         
-        // add select input image file
-        gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.weighty = 0.1;
-        gbc.ipady = 0;
-        this.add(new JLabel("Selected Image:", SwingConstants.LEFT), gbc);
-        
+        // file selection components
         JTextField fileField = new JTextField();
         fileField.setEditable(false);
         JButton browseButton = new JButton("Browse");
         browseButton.setEnabled(false);
-        JPanel filePanel = new JPanel(new BorderLayout());
-        filePanel.add(fileField);
-        filePanel.add(browseButton, BorderLayout.EAST);
+        
+        JPanel imgSourcePanel = new JPanel(new BorderLayout());
+        imgSourcePanel.add(selectImageRadio, BorderLayout.NORTH);
+        imgSourcePanel.add(imageSourceCombo, BorderLayout.CENTER);
+        imgSourcePanel.add(refreshButton, BorderLayout.EAST);
+        
+        GridBagConstraints gbc = new GridBagConstraints();
+        // gbc.anchor = GridBagConstraints.NORTH;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.weightx = 1.0;
+        this.add(imgSourcePanel, gbc);
+        
+        JPanel fileSourcePanel = new JPanel(new BorderLayout());
+        fileSourcePanel.add(fromFileRadio, BorderLayout.NORTH);
+        fileSourcePanel.add(fileField, BorderLayout.CENTER);
+        fileSourcePanel.add(browseButton, BorderLayout.EAST);
         
         gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.weighty = 0.7;
-        this.add(filePanel, gbc);
+        this.add(fileSourcePanel, gbc);
+        
+        configureFileChooser();
         
         // actions
+        refreshButton.addActionListener(e -> {
+            imageSourceCombo.removeAllItems();
+            for (String img_title : WindowManager.getImageTitles()) {
+                imageSourceCombo.addItem(img_title);
+            }
+        });
+
         fromFileRadio.addChangeListener(e -> {
             browseButton.setEnabled(fromFileRadio.isSelected());
-            this.fromFile = fromFileRadio.isSelected();
+            imageSourceCombo.setEnabled(!fromFileRadio.isSelected());
+            refreshButton.setEnabled(!fromFileRadio.isSelected());
+            
+            this.firePropertyChange(FROM_DISK, null, fromFileRadio.isSelected());
         });
+
         browseButton.addActionListener(e -> {
             int returnVal = this.fileChooser.showOpenDialog(this);
             if (returnVal == JFileChooser.APPROVE_OPTION) {
-                this.selectedFile = this.fileChooser.getSelectedFile().getAbsolutePath();
-                fileField.setText(this.selectedFile);
+                this.selectedImage = this.fileChooser.getSelectedFile().getAbsolutePath();
+                this.fromDisk = true;
+                fileField.setText(this.selectedImage);
             }
+        });
+
+        imageSourceCombo.addActionListener(e -> {
+            String imgName = (String) imageSourceCombo.getSelectedItem();
+            this.selectedImage = imgName;
+            this.fromDisk = false;
+            this.firePropertyChange(IMAGE_SELECTED, null, imgName);
         });
     }
 
-    protected void configfileChooser() {
-        fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-        fileChooser.setMultiSelectionEnabled(false);
-        fileChooser.setAcceptAllFileFilterUsed(false);
+    protected void configureFileChooser() {
+        this.fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        this.fileChooser.setMultiSelectionEnabled(false);
+        this.fileChooser.setAcceptAllFileFilterUsed(false);
         FileNameExtensionFilter imageFilter = new FileNameExtensionFilter(
             "Image Files (tif, jpg, png, czi, zarr)",
             "jpg", "jpeg", "png", "tif", "tiff", "czi", "zarr"
         );
-        fileChooser.setFileFilter(imageFilter);
+        this.fileChooser.setFileFilter(imageFilter);
     }
 
 }
