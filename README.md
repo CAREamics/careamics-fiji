@@ -13,6 +13,11 @@ Also, check [here](https://imagej.net/imagej-wiki-static/Installing_3rd_party_pl
 > You can find the saved checkpoint of the trained model in `<your home dir>/careamics_logs`.
 
 
-### Future Development
-- **Train from Disk**: Allowing user to choose an image file (tif, zarr, etc.) from disk and train the model using that image.
-- **Prediction plugin**: Can be used for predicting over images using a previously-trained model.
+### How to use
+#### Training
+![training](assets/training.png)
+
+<br>
+
+#### prediction
+![prediction](assets/prediction.png)
