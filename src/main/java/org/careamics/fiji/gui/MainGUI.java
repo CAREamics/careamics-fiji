@@ -2,6 +2,7 @@ package org.careamics.fiji.gui;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -19,6 +20,7 @@ import org.careamics.fiji.Config;
 
 public class MainGUI extends JFrame {
     public static final String START_TRAINING = "startTraining";
+    public static final String START_PREDICTION = "startPrediction";
     public static final String CANCEL_REQUESTED = "cancelRequested";
 
     protected JTextField experimentNameField;
@@ -34,8 +36,14 @@ public class MainGUI extends JFrame {
     protected JButton trainButton;
     protected JButton trainStopButton;
 
+    protected JCheckBox tilingCheckBox;
     protected JSpinner xyTileSizeSpin;
     protected JSpinner zTileSizeSpin;
+    protected JSpinner predBatchSizeSpin;
+    protected JCheckBox pred3DCheckBox;
+    protected JProgressBar predProgressBar;
+    protected JButton predictionButton;
+    protected JButton predictionStopButton;
     
     protected Config config;
     protected String axes = "XY";
@@ -89,6 +97,8 @@ public class MainGUI extends JFrame {
         
         add(mainPanel, mainGBC);
         
+        // actions
+        // train
         this.trainButton.addActionListener(e -> {
             this.trainButton.setEnabled(false);
             this.trainStopButton.setEnabled(true);
@@ -116,8 +126,25 @@ public class MainGUI extends JFrame {
                 }
             }
         });
+
+        // prediction
+        this.predictionButton.addActionListener(e -> {
+            this.predictionButton.setEnabled(false);
+            this.predictionStopButton.setEnabled(true);
+            
+            HashMap<String, Object> predConfig = createPredictionConfig();
+            this.firePropertyChange(START_PREDICTION, null, predConfig);
+        });
+
+        this.predictionStopButton.addActionListener(e -> {
+            this.predictionStopButton.setEnabled(false);
+            this.predProgressBar.setIndeterminate(true);
+            this.predProgressBar.setString("Stopping...");
+            
+            this.firePropertyChange(CANCEL_REQUESTED, null, null);
+        });
         
-        setSize(430, 690);
+        setSize(430, 705);
         // pack();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -139,15 +166,27 @@ public class MainGUI extends JFrame {
         this.valProgressBar.repaint();
     }
 
+    public void updatePredictionProgress(String msg, long current, long maximum) {
+        this.predProgressBar.setValue((int) current);
+        this.predProgressBar.setMaximum((int) maximum);
+        this.predProgressBar.setString(msg);
+        this.predProgressBar.repaint();
+    }
+
     public void reset() {
         this.trainButton.setEnabled(true);
         this.trainStopButton.setEnabled(false);
-        
         this.trainProgressBar.setIndeterminate(false);
         this.trainProgressBar.setValue(0);
         this.trainProgressBar.setString("0%");
         this.valProgressBar.setValue(0);
         this.valProgressBar.setString("0%");
+
+        this.predictionButton.setEnabled(true);
+        this.predictionStopButton.setEnabled(false);
+        this.predProgressBar.setIndeterminate(false);
+        this.predProgressBar.setValue(0);
+        this.predProgressBar.setString("0%");
     }
 
     protected Config createTrainConfig() {
@@ -178,6 +217,26 @@ public class MainGUI extends JFrame {
         config.fromDisk = this.trainDataPanel.fromDisk;
         if (this.trainDataPanel.fromDisk) {
             config.numChannels = null;
+        }
+
+        return config;
+    }
+
+    protected HashMap<String, Object> createPredictionConfig() {
+        HashMap<String, Object> config = new HashMap<>();
+        if (this.modelFromDisk) {
+            config.put("checkpoint_path", this.checkpointPath);
+        } else {
+            config.put("checkpoint_path", null);
+        }
+        config.put("pred_source", this.predictionDataPanel.selectedImage);
+        config.put("from_disk", this.predictionDataPanel.fromDisk);
+        config.put("batch_size", this.predBatchSizeSpin.getValue());
+        config.put("xy_tile_size", this.xyTileSizeSpin.getValue());
+        if (this.pred3DCheckBox.isSelected()) {
+            config.put("z_tile_size", this.zTileSizeSpin.getValue());
+        } else {
+            config.put("z_tile_size", null);
         }
 
         return config;
@@ -215,15 +274,15 @@ public class MainGUI extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 1.0;
-        gbc.weighty = 0.15;
+        gbc.weighty = 0.1;
         basePanel.add(this.trainDataPanel, gbc);
         
-        gbc.insets = new Insets(0, 0, 0, 0);
-        gbc.weighty = 0.85;
+        gbc.insets = new Insets(0, 0, 5, 0);
+        gbc.weighty = 0.8;
         gbc.gridy++;
         basePanel.add(configPanel, gbc);
 
-        gbc.weighty = 0;
+        gbc.weighty = 0.1;
         gbc.gridy++;
         basePanel.add(progressPanel, gbc);
         
@@ -235,24 +294,25 @@ public class MainGUI extends JFrame {
         basePanel.setLayout(new GridBagLayout());
         
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(0, 0, 10, 0);
+        gbc.insets = new Insets(0, 0, 5, 0);
         gbc.anchor = GridBagConstraints.NORTH;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 1.0;
-        gbc.weighty = 0.2;
+        // gbc.weighty = 0.2;
         basePanel.add(createPredictionCheckpointPanel(), gbc);
         
         this.predictionDataPanel = new InputDataPanel("Data");
-        // gbc.insets = new Insets(0, 0, 0, 0);
-        gbc.weighty = 0.2;
         gbc.gridy++;
         basePanel.add(this.predictionDataPanel, gbc);
 
-        gbc.weighty = 0.6;
         gbc.gridy++;
         basePanel.add(createPredictionConfigPanel(), gbc);
+
+        gbc.anchor = GridBagConstraints.SOUTH;
+        gbc.gridy++;
+        basePanel.add(createPredictionProgressPanel(), gbc);
         
         return basePanel;
     }
@@ -423,7 +483,7 @@ public class MainGUI extends JFrame {
         
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 5, 0, 5);
-        gbc.anchor = GridBagConstraints.SOUTH;
+        gbc.anchor = GridBagConstraints.CENTER;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.gridx = 0;
         gbc.gridy = 0;
@@ -441,12 +501,11 @@ public class MainGUI extends JFrame {
         this.valProgressBar = new JProgressBar(0, 100);
         this.valProgressBar.setStringPainted(true);
         this.valProgressBar.setMaximum(1);
-        // this.subProgressBar.setForeground(Color.getColor("#1ab1eb"));
         panel.add(this.valProgressBar, gbc);
         
         this.trainButton = new JButton("Train");
-        gbc.insets = new Insets(5, 5, 0, 5);
-        gbc.fill = GridBagConstraints.CENTER;
+        gbc.insets = new Insets(5, 35, 0, 35);
+        gbc.fill = GridBagConstraints.BOTH;
         gbc.gridwidth = 1;
         gbc.weightx = 1.0;
         gbc.gridx = 0;
@@ -530,8 +589,8 @@ public class MainGUI extends JFrame {
         configPanel.setBorder(BorderFactory.createTitledBorder("Configuration"));
         
         // tile prediction checkbox
-        JCheckBox tilingCheckBox = new JCheckBox("Tile Prediction");
-        tilingCheckBox.setSelected(true);
+        this.tilingCheckBox = new JCheckBox("Tile Prediction");
+        this.tilingCheckBox.setSelected(true);
         gbc.insets = new Insets(2, 5, 2, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
@@ -560,6 +619,13 @@ public class MainGUI extends JFrame {
         configPanel.add(this.xyTileSizeSpin, gbc);
         
         // Z tile size
+        this.pred3DCheckBox = new JCheckBox("3D Prediction");
+        gbc.gridx = 1;
+        gbc.gridy++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.2;
+        configPanel.add(this.pred3DCheckBox, gbc);
+        
         gbc.gridx = 0;
         gbc.gridy++;
         gbc.weightx = 0.2;
@@ -570,11 +636,72 @@ public class MainGUI extends JFrame {
         this.zTileSizeSpin = new JSpinner(
             new SpinnerNumberModel(8, 2, Integer.MAX_VALUE, 2)
         );
+        this.zTileSizeSpin.setEnabled(false);
         gbc.gridx = 1;
         gbc.weightx = 0.8;
         configPanel.add(this.zTileSizeSpin, gbc);
+
+        // batch size
+        gbc.gridx = 0;
+        gbc.gridy++;
+        gbc.weightx = 0.2;
+        configPanel.add(
+            new JLabel("Batch Size:", SwingConstants.LEFT),
+            gbc
+        );
+        this.predBatchSizeSpin = new JSpinner(
+            new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1)
+        );
+        gbc.gridx = 1;
+        gbc.weightx = 0.8;
+        configPanel.add(this.predBatchSizeSpin, gbc);
         
+        // actions
+        this.pred3DCheckBox.addActionListener(
+            e -> {this.zTileSizeSpin.setEnabled(this.pred3DCheckBox.isSelected());}
+        );
+        this.tilingCheckBox.addActionListener(
+            e -> {
+                this.xyTileSizeSpin.setEnabled(this.tilingCheckBox.isSelected());
+                this.pred3DCheckBox.setEnabled(this.tilingCheckBox.isSelected());
+                this.zTileSizeSpin.setEnabled(this.tilingCheckBox.isSelected() && this.pred3DCheckBox.isSelected());
+            }
+        );
+
         return configPanel;
+    }
+
+    protected JPanel createPredictionProgressPanel() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        // panel.setBorder(BorderFactory.createTitledBorder("Configuration"));
+        gbc.insets = new Insets(2, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.CENTER;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+
+        this.predProgressBar = new JProgressBar();
+        this.predProgressBar.setStringPainted(true);
+        panel.add(this.predProgressBar, gbc);
+
+        this.predictionButton = new JButton("Predict");
+        gbc.insets = new Insets(5, 35, 0, 35);
+        gbc.anchor = GridBagConstraints.CENTER;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        gbc.gridy++;
+        panel.add(this.predictionButton, gbc);
+
+        this.predictionStopButton = new JButton("Stop");
+        gbc.gridx++;
+        panel.add(this.predictionStopButton, gbc);
+
+        return panel;
     }
 
     private void selectedImageChanged(String imgName) {

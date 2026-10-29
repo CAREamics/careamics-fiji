@@ -13,7 +13,7 @@
 
 	<groupId>org.careamics</groupId>
 	<artifactId>CAREamics_Fiji</artifactId>
-	<version>1.0-SNAPSHOT</version>
+	<version>1.0</version>
 
 	<name>careamics-fiji</name>
 	<description>CAREamics Fiji plugin based on Appose.</description>

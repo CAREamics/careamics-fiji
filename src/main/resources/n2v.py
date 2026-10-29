@@ -1,16 +1,9 @@
-import sys
+from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import appose
 import numpy as np
-from careamics_appose import TaskTQDM
-from lightning.pytorch.callbacks import ModelCheckpoint
-from tqdm import tqdm
-
-# monkey patch tqdm to use TaskTQDM
-tqdm = TaskTQDM
-
 from appose import NDArray
 from appose.python_worker import Task
 from careamics.careamist import CAREamist
@@ -21,10 +14,11 @@ from careamics.lightning.callbacks import (
     StopPredictionCallback,
 )
 from careamics_appose import (
-    TaskTQDM,
+    # TaskTQDM,
     numpy_to_shared_memory,
     update_careamist_callbacks,
 )
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 SEED = 777
 
@@ -56,8 +50,8 @@ def transpose_axes(axes: str) -> str:
     return _axes
 
 
-def get_data_type(train_file: str) -> Literal["tiff", "zarr", "czi", "custom"]:
-    suffix = Path(train_file).suffix.lower()
+def get_data_type(data_source: str) -> Literal["tiff", "zarr", "czi", "custom"]:
+    suffix = Path(data_source).suffix.lower()
     if suffix in [".tif", ".tiff"]:
         return "tiff"
     if suffix == ".zarr":
@@ -65,6 +59,16 @@ def get_data_type(train_file: str) -> Literal["tiff", "zarr", "czi", "custom"]:
     if suffix == ".czi":
         return "czi"
     return "custom"
+
+
+def get_prediction_dir(pred_data: str) -> Path:
+    out_dir = Path(pred_data).parent / "predictions"
+    count = 0
+    while out_dir.exists():
+        count += 1
+        out_dir = Path(pred_data).parent / f"predictions_{count}"
+
+    return out_dir
 
 
 def create_config(
@@ -77,7 +81,7 @@ def create_config(
     num_channels: int | None = None,
     augmentations: list = ["x_flip", "y_flip", "rotate_90"],
     n_val_patches: int = 15,
-    # in_memory: bool = True,
+    in_memory: bool | None = None,
     normalization: Literal["mean_std", "min_max", "quantile", "none"] = "mean_std",
     seed: int = SEED,
 ) -> Configuration:
@@ -93,7 +97,7 @@ def create_config(
         n_channels=num_channels,
         augmentations=augmentations,
         n_val_patches=n_val_patches,
-        # in_memory=in_memory,
+        in_memory=in_memory,
         normalization=normalization,
         num_workers=3,
         seed=seed,
@@ -111,7 +115,6 @@ def get_losses(careamist: "CAREamist") -> dict:
 
 
 def train(task: Task | None = None):
-    log("Starting the training...")
     # get input parameters from appose
     axes = transpose_axes(globals().get("axes", "YX"))
     patch_size = globals().get("patch_size", [64, 64])
@@ -154,7 +157,6 @@ def train(task: Task | None = None):
         num_channels=num_channels,
         augmentations=["x_flip", "y_flip", "rotate_90"],
         n_val_patches=15,
-        # in_memory=True,
         normalization="mean_std",
         seed=SEED,
     )
@@ -191,43 +193,87 @@ def train(task: Task | None = None):
 
 
 def predict(task: Task | None = None):
-    log("Starting the prediction...")
-    # get input parameters from appose
-    input_image: NDArray | None = globals().get("input_image")
-    if input_image is not None:
-        train_data = input_image.ndarray()
-        data_type = "array"
-        # num_channels = globals().get("num_channels", 1)
-        log(f"input_image: {input_image.shape}")
-    else:
-        pred_data = globals().get("pred_source")
+    # checkpoint path
+    checkpoint_path: str | None = globals().get("checkpoint_path")
+    if checkpoint_path is None:
+        log("No model checkpoint was provided.")
+        return
+
+    # pred data
+    from_disk = globals().get("from_disk")
+    pred_data: NDArray | str | None = globals().get("pred_source")
+    if pred_data is None:
+        log("No prediction data was provided.")
+        return
+    if from_disk:
         data_type = get_data_type(pred_data)
-        # num_channels = None
+        in_memory = False
         log(f"pred_source: {pred_data}")
-    # # prediction
-    # if not is_task_cancelled():
-    #     log("Starting Prediction...")
-    #     tile_size = (128, 128)
-    #     tile_overlap = (16, 16)
-    #     if len(patch_size) == 3:
-    #         tile_size = (patch_size[0], 128, 128)
-    #         tile_overlap = (2, 16, 16)
+    else:
+        pred_data = pred_data.ndarray()
+        data_type = "array"
+        in_memory = True
+        log(f"pred_source: {pred_data.shape}")
 
-    #     try:
-    #         preds, _ = careamist.predict(
-    #             pred_data=train_data,
-    #             tile_size=tile_size,
-    #             tile_overlap=tile_overlap,
-    #         )
+    batch_size = globals().get("batch_size")
+    xy_tile_size = globals().get("xy_tile_size")
+    z_tile_size = globals().get("z_tile_size")
 
-    #         if task is not None:
-    #             task.outputs["prediction"] = numpy_to_shared_memory(preds[0])
-    #             task.outputs["losses"] = losses
+    tile_size = (xy_tile_size, xy_tile_size)
+    tile_overlap = (16, 16)
+    if z_tile_size is not None:
+        tile_size = (z_tile_size, xy_tile_size, xy_tile_size)
+        tile_overlap = (2, 16, 16)
 
-    #     except PredictionStoppedException:
-    #         log("Prediction was stopped.")
-    #     except Exception as e:
-    #         log(f"An error occurred during prediction: {e}")
+    # init CAREamist from checkpoint
+    careamist = CAREamist(
+        checkpoint_path=checkpoint_path, work_dir=Path.home() / "careamics_logs"
+    )
+    # update task callbacks if in appose mode
+    # so that the task can receive updates from the prediction process
+    if task is not None:
+        update_careamist_callbacks(careamist, task)
+        pred_stop_callback = StopPredictionCallback(is_task_cancelled)
+        careamist.callbacks.append(pred_stop_callback)
+        careamist.trainer.callbacks.append(pred_stop_callback)
+
+    # predict to disk if the source is from disk
+    pred_dir = None
+    if from_disk:
+        pred_dir = get_prediction_dir(pred_data)
+        pred_func = partial(
+            careamist.predict_to_disk,
+            prediction_dir=pred_dir,
+            write_type="zarr" if data_type == "zarr" else "tiff",
+        )
+    else:
+        pred_func = careamist.predict
+
+    # prediction
+    if not is_task_cancelled():
+        log("Starting Prediction...")
+        try:
+            output = pred_func(
+                pred_data=pred_data,
+                tile_size=tile_size,
+                tile_overlap=tile_overlap,
+                batch_size=batch_size,
+                data_type=data_type,
+                in_memory=in_memory,
+            )
+
+            if task is not None:
+                if from_disk:
+                    task.outputs["prediction"] = str(pred_dir)
+                else:
+                    preds = output[0][0]
+                    task.outputs["prediction"] = numpy_to_shared_memory(preds)
+
+        except PredictionStoppedException:
+            task.cancel()
+            log("Prediction was stopped.")
+        except Exception as e:
+            log(f"An error occurred during prediction: {e}")
 
 
 # ========================= main script =========================

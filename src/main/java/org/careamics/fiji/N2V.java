@@ -97,21 +97,35 @@ public class N2V extends DynamicCommand implements Initializable {
         GUI.center(this.mainGUI);
         
         mainGUI.addPropertyChangeListener(evt -> {
-            if (evt.getPropertyName() == MainGUI.START_TRAINING) {
-                Config config = (Config) evt.getNewValue();
-                logger.info("Configuration: " + config.toString());
+            switch (evt.getPropertyName()) {
+                case MainGUI.START_TRAINING:
+                    Config config = (Config) evt.getNewValue();
+                    logger.info("Configuration: " + config.toString());
+                    // run the image processing task in the background
+                    this.taskWorker = createTrainWorker(config);
+                    this.taskWorker.execute();
+                    break;
                 
-                // run the image processing task in the background
-                this.taskWorker = createTrainWorker(config);
-                this.taskWorker.execute();
-            
-            } else if (evt.getPropertyName() == MainGUI.CANCEL_REQUESTED) {
-                logger.info("Task cancellation requested.");
-                if (apposeTask != null) {
-                    logger.info(apposeTask);
-                    apposeTask.cancel();
-                }
+                case MainGUI.CANCEL_REQUESTED:
+                    logger.info("Task cancellation requested.");
+                    if (apposeTask != null) {
+                        logger.info(apposeTask);
+                        apposeTask.cancel();
+                    }
+                    break;
+
+                case MainGUI.START_PREDICTION:
+                    HashMap<String, Object> predConfig = (HashMap<String, Object>) evt.getNewValue();
+                    logger.info("Prediction Configuration: " + predConfig.toString());
+                    // run the prediction task in the background
+                    this.taskWorker = createPredictionWorker(predConfig);
+                    this.taskWorker.execute();
+                    break;
+
+                default:
+                    break;
             }
+        
         });
         
     }
@@ -144,12 +158,6 @@ public class N2V extends DynamicCommand implements Initializable {
                         // show the loss plot
                         LossPlot lossPlot = new LossPlot(losses);
                         lossPlot.setVisible(true);
-                        
-                        // final NDArray prediction = (NDArray) apposeTask.outputs.get("prediction");
-                        // ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
-                        // // ImageJFunctions.show(view);
-                        // ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
-                        // ImageJFunctions.show(ImageJFunctions.convertFloat(wrapped));
                     }
                 
                 } catch (Exception e) {
@@ -203,6 +211,134 @@ public class N2V extends DynamicCommand implements Initializable {
                             msg += " (" + event.current + "/" + event.maximum + ")";
                             SwingUtilities.invokeLater(() -> {
                                 this.mainGUI.updateProgress(event.message, event.current, event.maximum);
+                            });
+                        }
+                        logger.info("[Python backend] " + msg);
+                        break;
+                    
+                    case COMPLETION:
+                        logger.info("Task completed successfully.");
+                        break;
+                    
+                    case CANCELATION:
+                        logger.warn("Task was cancelled.");
+                        break;
+                    
+                    case FAILURE:
+                        logger.error("Task failed:\n" + event.task.error);
+                        break;
+                    
+                    default:
+                        break;
+                }
+            });
+            
+            apposeTask.start();
+            apposeTask.waitFor();
+            return apposeTask;
+            
+        } catch (Exception e) {
+            logger.error(e.toString());
+            return null;
+        }
+    }
+
+    private SwingWorker<Task, Task> createPredictionWorker(final HashMap<String, Object> predConfig) {
+        return new SwingWorker<>() {
+            @Override
+            protected Task doInBackground() throws Exception {
+                // run the prediction task
+                apposeTask = predictionProcess(predConfig);
+                return apposeTask;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    apposeTask = get();
+                    if (apposeTask == null) {
+                        logger.error("Python script failed: apposeTask is null");
+                        return;
+                    }
+                    if (apposeTask.status == TaskStatus.FAILED) {
+                        throw new RuntimeException("Python script failed with error: " + apposeTask.error);
+                    }
+                    
+                    if (apposeTask.status == TaskStatus.COMPLETE) {
+                        Object pred_out = apposeTask.outputs.get("prediction");
+                        if (pred_out instanceof String) {
+                            String predictionPath = (String) pred_out;
+                            logger.info("Prediction was successfully saved at: " + predictionPath);
+                        } else {
+                            final NDArray prediction = (NDArray) pred_out;
+                            ArrayImg<FloatType, ?> view = NDArrays.asArrayImg(prediction);
+                            // ImageJFunctions.show(view);
+                            ImagePlus wrapped = ImageJFunctions.wrap(view, "prediction");
+                            ImageJFunctions.show(ImageJFunctions.convertFloat(wrapped));
+                        }
+                    }
+                
+                } catch (Exception e) {
+                    logger.error("Error executing task", e);
+                } finally {
+                    mainGUI.reset();
+                }
+            }
+        };
+    }
+
+    private Task predictionProcess(final HashMap<String, Object> config) {
+        // model checkpoint path
+        if (config.get("checkpoint_path") == null) {
+            // set it to the trained model checkpoint path if available
+            if (trainedModelPath != null) {
+                config.put("checkpoint_path", trainedModelPath);
+            } else {
+                logger.error("No model checkpoint provided.");
+                return null;
+            }
+        }
+
+        // prediction source image
+        String predSource = (String) config.get("pred_source");
+        if (predSource == null) {
+            logger.error("No image or training file provided.");
+            return null;
+        }
+        if (config.get("from_disk") == Boolean.FALSE) {
+            // get the image from the window manager
+            final ImagePlus imgp = WindowManager.getImage(predSource);
+            if (imgp == null) {
+                logger.error("Image was not found: " + predSource);
+                return null;
+            } else {
+                config.put("pred_source", imageToAppose(imgp));
+            }
+        }
+        
+        // python environment
+        if (this.apposeEnv == null) {
+            logger.info("creating the python environment...");
+            this.apposeEnv = createEnvironment();
+        }
+        // get the python script
+        final String n2vScript = getN2VScript();
+        
+        // prediction mode
+        config.put("training", false);
+        
+        try (Service python = this.apposeEnv.python()) {
+            apposeTask = python.task(n2vScript, config);
+            
+            // listen for task updates
+            apposeTask.listen(event -> {
+                switch (event.responseType) {
+                    case UPDATE:
+                        String msg = event.message;
+                        if (event.maximum > 0) {
+                            msg += " (" + event.current + "/" + event.maximum + ")";
+                            SwingUtilities.invokeLater(() -> {
+                                this.mainGUI.updatePredictionProgress(event.message, event.current, event.maximum);
                             });
                         }
                         logger.info("[Python backend] " + msg);
