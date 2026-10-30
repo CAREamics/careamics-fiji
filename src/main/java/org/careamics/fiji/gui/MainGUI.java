@@ -24,7 +24,7 @@ public class MainGUI extends JFrame {
     public static final String CANCEL_REQUESTED = "cancelRequested";
 
     protected JTextField experimentNameField;
-    protected JTextField axesField;
+    protected AxesComboBox axesCombobox;
     protected JCheckBox patch3DCheckBox;
     protected JSpinner patchYXSpin;
     protected JSpinner patchZSpin;
@@ -196,7 +196,7 @@ public class MainGUI extends JFrame {
         config.numEpochs = (Integer) this.numEpochsSpin.getValue();
         config.numSteps = (Integer) this.numStepsSpin.getValue();
         // axes
-        config.axes = this.axesField.getText().toUpperCase() + "YX";
+        config.axes = this.axesCombobox.getSelectedItem().toString().toUpperCase();
         // patch size
         int[] patchSize = new int[]{
             (Integer) this.patchYXSpin.getValue(),
@@ -332,66 +332,42 @@ public class MainGUI extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0.1;
-        gbc.ipady = 5;
+        // gbc.ipady = 5;
         configPanel.add(new JLabel("Experiment Name:", SwingConstants.RIGHT), gbc);
         
         this.experimentNameField = new JTextField("n2v");
-        gbc.gridx = 1;
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 0.8;
+        gbc.gridx = 1;
         gbc.ipady = 0;
         configPanel.add(this.experimentNameField, gbc);
-        
+    
         // axes
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 0.1;
         gbc.gridx = 0;
         gbc.gridy++;
-        gbc.weightx = 0.1;
         configPanel.add(new JLabel("Input Axes:", SwingConstants.RIGHT), gbc);
-        // XY as a fixed label
-        gbc.insets = new Insets(0, 3, 0, 0);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 1;
-        gbc.weightx = 0.8;
-        configPanel.add(new JLabel("XY"), gbc);
         
-        this.axesField = new JTextField();
-        this.axesField.setToolTipText("only valid characters: [C, Z, T]");
-        // input validation
-        ArrayList<Character> validAxes = new ArrayList<Character>(Arrays.asList('C', 'Z', 'T'));
-        this.axesField.addKeyListener(new KeyAdapter() {
-            public void keyTyped(KeyEvent e) {
-                char _input = Character.toUpperCase(e.getKeyChar());
-                if (!validAxes.contains(_input)) {
-                    e.consume(); // ignore invalid key presses
-                } else if (axesField.getText().toUpperCase().contains(String.valueOf(_input))) {
-                    e.consume(); // ignore duplicate key presses
-                }
-            }
-            // to upper case
-            public void keyReleased(KeyEvent e) {
-                String text = axesField.getText().toUpperCase();
-                axesField.setText(text);
-            }
-        });
-
-        gbc.insets = new Insets(0, 25, 0, 0);
+        this.axesCombobox = new AxesComboBox();
+        this.axesCombobox.setSelectedIndex(0);
+        
+        gbc.insets = new Insets(0, 0, 0, 0);
         gbc.anchor = GridBagConstraints.EAST;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.2;
+        gbc.weightx = 0.8;
         gbc.gridx = 1;
-        configPanel.add(this.axesField, gbc);
+        configPanel.add(this.axesCombobox, gbc);
     
         // YX Patch Size
         gbc.insets = new Insets(0, 0, 0, 0);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 0.1;
         gbc.gridx = 0;
         gbc.gridy++;
-        gbc.weightx = 0.1;
         configPanel.add(new JLabel("XY Patch Size:", SwingConstants.RIGHT), gbc);
         
         gbc.gridx = 1;
@@ -720,7 +696,7 @@ public class MainGUI extends JFrame {
         String ex_name = imgName == null ? "n2v" : getImageStemName(imgName) + "_n2v";
         this.experimentNameField.setText(ex_name);
 
-        // C Z T
+        // axes
         String extraAxes = "";
         if (this.numChannels != null && this.numChannels > 1) {
             extraAxes += "C";
@@ -731,7 +707,7 @@ public class MainGUI extends JFrame {
         if (this.numFrames != null && this.numFrames > 1) {
             extraAxes += "T";
         }
-        this.axesField.setText(extraAxes);
+        this.axesCombobox.setSelectedItem("XY" + extraAxes);
     }
 
     private void fromDiskSelected() {
@@ -740,7 +716,7 @@ public class MainGUI extends JFrame {
         this.numSlices = null;
         this.numFrames = null;
         this.experimentNameField.setText("n2v");
-        this.axesField.setText("");
+        this.axesCombobox.setSelectedIndex(0);
     }
 
     private String getImageStemName(String imgName) {
