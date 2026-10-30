@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 // import java.beans.PropertyChangeListener;
 
 import javax.swing.*;
@@ -202,7 +200,7 @@ public class MainGUI extends JFrame {
             (Integer) this.patchYXSpin.getValue(),
             (Integer) this.patchYXSpin.getValue()
         };
-        if (this.patchZSpin.isEnabled()) {
+        if (this.patch3DCheckBox.isSelected()) {
             patchSize = new int[]{
                 (Integer) this.patchZSpin.getValue(),
                 (Integer) this.patchYXSpin.getValue(),

@@ -180,6 +180,7 @@ def train(task: Task | None = None):
         log("Starting Training...")
         careamist.train(train_data=train_data)
 
+    if not is_task_cancelled():
         losses = get_losses(careamist)
         task.outputs["losses"] = losses
 

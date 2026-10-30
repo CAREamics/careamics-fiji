@@ -109,7 +109,6 @@ public class N2V extends DynamicCommand implements Initializable {
                 case MainGUI.CANCEL_REQUESTED:
                     logger.info("Task cancellation requested.");
                     if (apposeTask != null) {
-                        logger.info(apposeTask);
                         apposeTask.cancel();
                     }
                     break;
@@ -152,16 +151,22 @@ public class N2V extends DynamicCommand implements Initializable {
                     }
                     
                     if (apposeTask.status == TaskStatus.COMPLETE) {
-                        final Map<String, ArrayList<Float>> losses = (Map<String, ArrayList<Float>>) apposeTask.outputs.get("losses");
+                        // handle graceful cancellation
+                        if (apposeTask.outputs == null || apposeTask.outputs.get("checkpoint_path") == null) {
+                            logger.info("Training was cancelled!");
+                            return;
+                        }
                         // get the checkpoint path
                         trainedModelPath = (String) apposeTask.outputs.get("checkpoint_path");
+                        // plot losses
+                        final Map<String, ArrayList<Float>> losses = (Map<String, ArrayList<Float>>) apposeTask.outputs.get("losses");
                         // show the loss plot
                         LossPlot lossPlot = new LossPlot(losses);
                         lossPlot.setVisible(true);
                     }
                 
                 } catch (Exception e) {
-                    logger.error("Error executing task", e);
+                    logger.error("Error executing task: ", e);
                 } finally {
                     mainGUI.reset();
                 }
@@ -265,6 +270,11 @@ public class N2V extends DynamicCommand implements Initializable {
                     }
                     
                     if (apposeTask.status == TaskStatus.COMPLETE) {
+                        // handle graceful cancellation
+                        if (apposeTask.outputs == null || apposeTask.outputs.get("prediction") == null) {
+                            logger.info("Prediction was cancelled!");
+                            return;
+                        }
                         Object pred_out = apposeTask.outputs.get("prediction");
                         if (pred_out instanceof String) {
                             String predictionPath = (String) pred_out;
@@ -279,7 +289,7 @@ public class N2V extends DynamicCommand implements Initializable {
                     }
                 
                 } catch (Exception e) {
-                    logger.error("Error executing task", e);
+                    logger.error("Error executing task: ", e);
                 } finally {
                     mainGUI.reset();
                 }
