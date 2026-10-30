@@ -31,7 +31,7 @@ def log(msg: str, end="\n"):
         print(f"{msg}", end=end)
 
 
-def is_task_cancelled() -> bool:
+def cancel_requested() -> bool:
     task: Task | None = globals().get("task")
     return task is not None and task.cancel_requested
 
@@ -161,13 +161,12 @@ def train(task: Task | None = None):
         seed=SEED,
     )
 
-    if not is_task_cancelled():
+    if not cancel_requested():
         log("Initializing CAREamist...")
         work_dir = Path.home() / "careamics_logs"
         careamist = CAREamist(
             config,
             work_dir=work_dir,
-            callbacks=[StopPredictionCallback(is_task_cancelled)],
         )
 
         # update task callbacks if in appose mode
@@ -176,11 +175,11 @@ def train(task: Task | None = None):
             update_careamist_callbacks(careamist, task)
 
     # training
-    if not is_task_cancelled():
+    if not cancel_requested():
         log("Starting Training...")
         careamist.train(train_data=train_data)
 
-    if not is_task_cancelled():
+    if not cancel_requested():
         losses = get_losses(careamist)
         task.outputs["losses"] = losses
 
@@ -191,6 +190,8 @@ def train(task: Task | None = None):
                     checkpoint_path = cb.last_model_path
                 task.outputs["checkpoint_path"] = checkpoint_path
                 log(f"model checkpoint: {checkpoint_path}")
+    else:
+        task.cancel()
 
 
 def predict(task: Task | None = None):
@@ -227,14 +228,18 @@ def predict(task: Task | None = None):
         tile_overlap = (2, 16, 16)
 
     # init CAREamist from checkpoint
-    careamist = CAREamist(
-        checkpoint_path=checkpoint_path, work_dir=Path.home() / "careamics_logs"
-    )
+    if not cancel_requested():
+        careamist = CAREamist(
+            checkpoint_path=checkpoint_path, work_dir=Path.home() / "careamics_logs"
+        )
+    else:
+        task.cancel()
+        return
     # update task callbacks if in appose mode
     # so that the task can receive updates from the prediction process
     if task is not None:
         update_careamist_callbacks(careamist, task)
-        pred_stop_callback = StopPredictionCallback(is_task_cancelled)
+        pred_stop_callback = StopPredictionCallback(cancel_requested)
         careamist.callbacks.append(pred_stop_callback)
         careamist.trainer.callbacks.append(pred_stop_callback)
 
@@ -251,7 +256,7 @@ def predict(task: Task | None = None):
         pred_func = careamist.predict
 
     # prediction
-    if not is_task_cancelled():
+    if not cancel_requested():
         log("Starting Prediction...")
         try:
             output = pred_func(
@@ -275,6 +280,8 @@ def predict(task: Task | None = None):
             log("Prediction was stopped.")
         except Exception as e:
             log(f"An error occurred during prediction: {e}")
+    else:
+        task.cancel()
 
 
 # ========================= main script =========================

@@ -143,7 +143,7 @@ public class N2V extends DynamicCommand implements Initializable {
                 try {
                     apposeTask = get();
                     if (apposeTask == null) {
-                        logger.error("Python script failed: apposeTask is null");
+                        logger.error("Task is null");
                         return;
                     }
                     if (apposeTask.status == TaskStatus.FAILED) {
@@ -262,7 +262,7 @@ public class N2V extends DynamicCommand implements Initializable {
                 try {
                     apposeTask = get();
                     if (apposeTask == null) {
-                        logger.error("Python script failed: apposeTask is null");
+                        logger.error("Task is null");
                         return;
                     }
                     if (apposeTask.status == TaskStatus.FAILED) {
