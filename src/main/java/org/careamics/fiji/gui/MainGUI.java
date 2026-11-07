@@ -4,14 +4,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.awt.*;
-// import java.beans.PropertyChangeListener;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
-// import javax.swing.event.SwingPropertyChangeSupport;
 
 import ij.ImagePlus;
 import ij.WindowManager;
+import org.scijava.log.LogService;
 
 import org.careamics.fiji.Config;
 
@@ -56,14 +55,17 @@ public class MainGUI extends JFrame {
     protected String checkpointPath;
     protected final JFileChooser checkpointChooser = new JFileChooser();
 
+    protected LogService logger;
+
 
     public static void main(final String[] args) {
-        final MainGUI mainGUI = new MainGUI();
+        // final LogService logger = null;
+        final MainGUI mainGUI = new MainGUI(null);
     }
 
-    public MainGUI() {
+    public MainGUI(LogService logger) {
         super("CAREamics");
-        // setAlwaysOnTop(true);
+        this.logger = logger;
         
         JPanel mainPanel = new JPanel(new GridBagLayout());
         
@@ -689,7 +691,11 @@ public class MainGUI extends JFrame {
         this.numChannels = dims[2];
         this.numSlices = dims[3];
         this.numFrames = dims[4];
-        System.out.println("Image dimensions: " + Arrays.toString(dims));
+        if (this.logger != null) {
+            this.logger.info("Selected image dimensions: " + Arrays.toString(dims));
+        } else {
+            System.out.println("Selected image dimensions: " + Arrays.toString(dims));
+        }
 
         String ex_name = imgName == null ? "n2v" : getImageStemName(imgName) + "_n2v";
         this.experimentNameField.setText(ex_name);

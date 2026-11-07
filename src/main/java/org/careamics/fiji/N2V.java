@@ -10,21 +10,19 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.beans.PropertyChangeListener;
-import java.awt.Color;
-import java.beans.PropertyChangeEvent;
 
+import java.awt.Color;
+import java.awt.BorderLayout;
+import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+
 
 import ij.IJ;
 import ij.ImagePlus;
 import ij.WindowManager;
 import ij.gui.GUI;
-
 import net.imagej.ImageJ;
-import net.imagej.Dataset;
 import net.imagej.ImgPlus;
 import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.appose.NDArrays;
@@ -53,7 +51,7 @@ import org.scijava.Context;
 import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
-
+import org.scijava.ui.swing.console.LoggingPanel;
 import org.careamics.fiji.gui.MainGUI;
 import org.careamics.fiji.gui.LossPlot;
 
@@ -72,7 +70,7 @@ public class N2V extends DynamicCommand implements Initializable {
 
     @Override
     public void initialize() {
-
+    
     }
 
     public static void main(final String[] args)
@@ -89,11 +87,27 @@ public class N2V extends DynamicCommand implements Initializable {
             plugin.run();
         }
 	}
-
+    
     @Override
     public void run() {
-        // show the main GUI
-        this.mainGUI = new MainGUI();
+        // logging panel
+        final org.scijava.Context currentContext = getContext();
+        SwingUtilities.invokeLater(() -> {
+            // instantiate the native SciJava logging panel
+            LoggingPanel loggingPanel = new LoggingPanel(currentContext);
+            logger.addLogListener(loggingPanel);
+            
+            // wrap it inside an JFrame
+            JFrame frame = new JFrame("CAREamics Log Monitor");
+            frame.setSize(750, 450);
+            frame.setLayout(new BorderLayout());
+            frame.add(loggingPanel, BorderLayout.CENTER);
+            frame.setLocationRelativeTo(null); // Center on screen
+            frame.setVisible(true);
+        });
+        
+        // init the main GUI
+        this.mainGUI = new MainGUI(logger);
         GUI.center(this.mainGUI);
         
         mainGUI.addPropertyChangeListener(evt -> {
@@ -112,7 +126,7 @@ public class N2V extends DynamicCommand implements Initializable {
                         apposeTask.cancel();
                     }
                     break;
-
+                
                 case MainGUI.START_PREDICTION:
                     HashMap<String, Object> predConfig = (HashMap<String, Object>) evt.getNewValue();
                     logger.info("Prediction Configuration: " + predConfig.toString());
@@ -120,7 +134,7 @@ public class N2V extends DynamicCommand implements Initializable {
                     this.taskWorker = createPredictionWorker(predConfig);
                     this.taskWorker.execute();
                     break;
-
+                
                 default:
                     break;
             }
