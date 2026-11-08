@@ -76,9 +76,10 @@ public class MainGUI extends JFrame {
         gbc.gridy = 0;
         gbc.weightx = 1.0;
         gbc.weighty = 0;
+        // add title panel
         mainPanel.add(createTitlePanel(), gbc);
         
-        // create tabs for input and config panels
+        // create tabs for training, prediction, and export panels
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.addTab("Training", createTrainingPanel());
         tabbedPane.addTab("Prediction", createPredictionPanel());
@@ -86,72 +87,17 @@ public class MainGUI extends JFrame {
         gbc.weighty = 1.0;
         mainPanel.add(tabbedPane, gbc);
         
-        setLayout(new GridBagLayout());
-        GridBagConstraints mainGBC = new GridBagConstraints();
-        mainGBC.anchor = GridBagConstraints.NORTH;
-        mainGBC.fill = GridBagConstraints.BOTH;
-        mainGBC.gridx = 0;
-        mainGBC.gridy = 0;
-        mainGBC.weightx = 1.0;
-        mainGBC.weighty = 1.0;
-        
-        add(mainPanel, mainGBC);
-        
         // actions
-        // train
-        this.trainButton.addActionListener(e -> {
-            this.trainButton.setEnabled(false);
-            this.trainStopButton.setEnabled(true);
+        setButtonActions();
         
-            this.config = createTrainConfig();
-            // dispatch the config event
-            this.firePropertyChange(START_TRAINING, null, this.config);
-        });
-        
-        this.trainStopButton.addActionListener(e -> {
-            this.trainStopButton.setEnabled(false);
-            this.trainProgressBar.setIndeterminate(true);
-            this.trainProgressBar.setString("Stopping...");
-            
-            this.firePropertyChange(CANCEL_REQUESTED, null, null);
-        });
-        
-        this.trainDataPanel.addPropertyChangeListener(evt -> {
-            if (evt.getPropertyName() == InputDataPanel.IMAGE_SELECTED) {
-                selectedImageChanged((String) evt.getNewValue());
-            
-            } else if (evt.getPropertyName() == InputDataPanel.FROM_DISK) {
-                if ((Boolean) evt.getNewValue()) {
-                    fromDiskSelected();
-                }
-            }
-        });
-
-        // prediction
-        this.predictionButton.addActionListener(e -> {
-            this.predictionButton.setEnabled(false);
-            this.predictionStopButton.setEnabled(true);
-            
-            HashMap<String, Object> predConfig = createPredictionConfig();
-            this.firePropertyChange(START_PREDICTION, null, predConfig);
-        });
-
-        this.predictionStopButton.addActionListener(e -> {
-            this.predictionStopButton.setEnabled(false);
-            this.predProgressBar.setIndeterminate(true);
-            this.predProgressBar.setString("Stopping...");
-            
-            this.firePropertyChange(CANCEL_REQUESTED, null, null);
-        });
-        
+        setContentPane(mainPanel);
         setSize(430, 705);
-        // pack();
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setVisible(true);
     }
 
-    public void updateProgress(String msg, long current, long maximum) {
+    public void updateTrainingProgress(String msg, long current, long maximum) {
         if (msg.toLowerCase().contains("train")) {
             this.trainProgressBar.setValue((int) current);
             this.trainProgressBar.setMaximum((int)maximum);
@@ -327,128 +273,40 @@ public class MainGUI extends JFrame {
         gbc.weighty = 1.0;
         
         // Experiment Name
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 0.1;
-        // gbc.ipady = 5;
-        configPanel.add(new JLabel("Experiment Name:", SwingConstants.RIGHT), gbc);
-        
         this.experimentNameField = new JTextField("n2v");
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
-        gbc.gridx = 1;
-        gbc.ipady = 0;
-        configPanel.add(this.experimentNameField, gbc);
+        addField(configPanel, gbc, "Experiment Name:", this.experimentNameField, 0);
     
         // axes
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weightx = 0.1;
-        gbc.gridx = 0;
-        gbc.gridy++;
-        configPanel.add(new JLabel("Input Axes:", SwingConstants.RIGHT), gbc);
-        
         this.axesCombobox = new AxesComboBox();
         this.axesCombobox.setSelectedIndex(0);
-        
-        gbc.insets = new Insets(0, 0, 0, 0);
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
-        gbc.gridx = 1;
-        configPanel.add(this.axesCombobox, gbc);
+        addField(configPanel, gbc, "Input Axes:", this.axesCombobox, 1);
     
         // YX Patch Size
-        gbc.insets = new Insets(0, 0, 0, 0);
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weightx = 0.1;
-        gbc.gridx = 0;
-        gbc.gridy++;
-        configPanel.add(new JLabel("XY Patch Size:", SwingConstants.RIGHT), gbc);
-        
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
         this.patchYXSpin = new JSpinner(new SpinnerNumberModel(64, 8, 998, 2));
-        configPanel.add(this.patchYXSpin, gbc);
+        addField(configPanel, gbc, "XY Patch Size:", this.patchYXSpin, 2);
     
         // 3D Checkbox
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.gridx = 1;
-        gbc.gridy++;
-        gbc.weightx = 0.8;
         this.patch3DCheckBox = new JCheckBox("3D Patching");
         // disable Z Patch Size if 3D Patching is not selected
         this.patch3DCheckBox.addActionListener(e -> this.patchZSpin.setEnabled(this.patch3DCheckBox.isSelected()));
-        configPanel.add(this.patch3DCheckBox, gbc);
+        addField(configPanel, gbc, null, this.patch3DCheckBox, 3);
     
         // Z Patch Size
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.gridx = 0;
-        gbc.gridy++;
-        gbc.weightx = 0.1;
-        configPanel.add(new JLabel("Z Patch Size:", SwingConstants.RIGHT), gbc);
-        
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
-        this.patchZSpin = new JSpinner(new SpinnerNumberModel(8, 4, 998, 2));
+        this.patchZSpin = new JSpinner(new SpinnerNumberModel(8, 2, 998, 2));
         this.patchZSpin.setEnabled(false);
-        configPanel.add(this.patchZSpin, gbc);
+        addField(configPanel, gbc, "Z Patch Size:", this.patchZSpin, 4);
     
         // Batch Size
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.gridx = 0;
-        gbc.gridy++;
-        gbc.weightx = 0.1;
-        configPanel.add(new JLabel("Batch Size:", SwingConstants.RIGHT), gbc);
-        
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
         this.batchSizeSpin = new JSpinner(new SpinnerNumberModel(8, 1, 999, 1));
-        configPanel.add(this.batchSizeSpin, gbc);
+        addField(configPanel, gbc, "Batch Size:", this.batchSizeSpin, 5);
 
         // Number of Epochs
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.gridx = 0;
-        gbc.gridy++;
-        gbc.weightx = 0.1;
-        
-        configPanel.add(new JLabel("Number of Epochs:", SwingConstants.RIGHT), gbc);
-        
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
         this.numEpochsSpin = new JSpinner(new SpinnerNumberModel(30, 1, 999, 1));
-        configPanel.add(this.numEpochsSpin, gbc);
+        addField(configPanel, gbc, "Number of Epochs:", this.numEpochsSpin, 6);
 
         // Number of Steps
-        gbc.gridx = 0;
-        gbc.gridy++;
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weightx = 0.1;
-        configPanel.add(new JLabel("Number of Steps:", SwingConstants.RIGHT), gbc);
-
-        gbc.gridx = 1;
-        gbc.anchor = GridBagConstraints.EAST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 0.8;
         this.numStepsSpin = new JSpinner(new SpinnerNumberModel(100, 1, 999, 1));
-        configPanel.add(this.numStepsSpin, gbc);
+        addField(configPanel, gbc, "Number of Steps:", this.numStepsSpin, 7);
         
         return configPanel;
     }
@@ -678,6 +536,71 @@ public class MainGUI extends JFrame {
         panel.add(this.predictionStopButton, gbc);
 
         return panel;
+    }
+
+    private void setButtonActions() {
+        // train
+        this.trainButton.addActionListener(e -> {
+            this.trainButton.setEnabled(false);
+            this.trainStopButton.setEnabled(true);
+        
+            this.config = createTrainConfig();
+            // dispatch the config event
+            this.firePropertyChange(START_TRAINING, null, this.config);
+        });
+        
+        this.trainStopButton.addActionListener(e -> {
+            this.trainStopButton.setEnabled(false);
+            this.trainProgressBar.setIndeterminate(true);
+            this.trainProgressBar.setString("Stopping...");
+            
+            this.firePropertyChange(CANCEL_REQUESTED, null, null);
+        });
+        
+        this.trainDataPanel.addPropertyChangeListener(evt -> {
+            if (evt.getPropertyName() == InputDataPanel.IMAGE_SELECTED) {
+                selectedImageChanged((String) evt.getNewValue());
+            
+            } else if (evt.getPropertyName() == InputDataPanel.FROM_DISK) {
+                if ((Boolean) evt.getNewValue()) {
+                    fromDiskSelected();
+                }
+            }
+        });
+
+        // prediction
+        this.predictionButton.addActionListener(e -> {
+            this.predictionButton.setEnabled(false);
+            this.predictionStopButton.setEnabled(true);
+            
+            HashMap<String, Object> predConfig = createPredictionConfig();
+            this.firePropertyChange(START_PREDICTION, null, predConfig);
+        });
+
+        this.predictionStopButton.addActionListener(e -> {
+            this.predictionStopButton.setEnabled(false);
+            this.predProgressBar.setIndeterminate(true);
+            this.predProgressBar.setString("Stopping...");
+            
+            this.firePropertyChange(CANCEL_REQUESTED, null, null);
+        });
+    }
+
+    private void addField(JPanel panel, GridBagConstraints gbc, String label, JComponent field, int row) {
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.1;
+        if (label != null) {
+            panel.add(new JLabel(label, SwingConstants.RIGHT), gbc);
+        }
+        
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 0.8;
+        gbc.gridx = 1;
+        panel.add(field, gbc);
     }
 
     private void selectedImageChanged(String imgName) {

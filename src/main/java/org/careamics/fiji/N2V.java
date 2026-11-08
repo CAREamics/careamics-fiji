@@ -229,7 +229,7 @@ public class N2V extends DynamicCommand implements Initializable {
                         if (event.maximum > 0) {
                             msg += " (" + event.current + "/" + event.maximum + ")";
                             SwingUtilities.invokeLater(() -> {
-                                this.mainGUI.updateProgress(event.message, event.current, event.maximum);
+                                this.mainGUI.updateTrainingProgress(event.message, event.current, event.maximum);
                             });
                         }
                         logger.info("[Python backend] " + msg);
@@ -430,7 +430,7 @@ public class N2V extends DynamicCommand implements Initializable {
                 .subscribeProgress((title, current, maximum) -> {
                     logger.info(title + ": " + current + "/" + maximum);
                     SwingUtilities.invokeLater(() -> {
-                        this.mainGUI.updateProgress(title, current, maximum);
+                        this.mainGUI.updateTrainingProgress(title, current, maximum);
                     });
                 })
                 // .subscribeOutput(line -> logger.info(line))
