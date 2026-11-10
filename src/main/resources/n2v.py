@@ -4,15 +4,20 @@ from typing import Literal
 
 import appose
 import numpy as np
+import torch
 from appose import NDArray
 from appose.python_worker import Task
 from careamics.careamist import CAREamist
 from careamics.config import create_advanced_n2v_config
 from careamics.config.configuration import Configuration
+from careamics.dataset import ImageRegionData
+from careamics.dataset.dataset import CareamicsDataset
 from careamics.lightning.callbacks import (
     PredictionStoppedException,
     StopPredictionCallback,
 )
+from careamics.model_io.bioimage.cover_factory import create_cover
+from careamics.utils.reshape_array import reshape_array
 from careamics_appose import (
     # TaskTQDM,
     numpy_to_shared_memory,
@@ -21,9 +26,13 @@ from careamics_appose import (
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 SEED = 777
+WORK_DIR = Path.home() / "careamics_logs"
 
 
-def log(msg: str, end="\n"):
+def log(msg: str, is_error: bool = False, end="\n"):
+    if is_error:
+        msg = f"ERROR: {msg}"
+
     task: Task | None = globals().get("task")
     if task is not None:
         task.update(msg)
@@ -114,6 +123,55 @@ def get_losses(careamist: "CAREamist") -> dict:
     }
 
 
+def get_sample_input_output(careamist: CAREamist) -> tuple:
+    log("Getting sample input and output...")
+    dataset: CareamicsDataset = careamist.trainer.datamodule.val_dataset
+    img_region: ImageRegionData = dataset[0][0]
+    sample_input = dataset.normalization.denormalize(
+        torch.from_numpy(img_region.data)
+    ).numpy()
+    # make sure the input array has the correct number of dims according to the axes
+    dim_diff = sample_input.ndim - len(careamist.config.data_config.axes)
+    if dim_diff > 0:
+        sample_input = np.squeeze(sample_input, axis=tuple(range(dim_diff)))
+
+    # get the prediction as sample output
+    sample_output, _ = careamist.predict(
+        sample_input,
+        data_type="array",
+        in_memory=True,
+        batch_size=1,
+    )
+
+    output_array = reshape_array(
+        np.concatenate(sample_output, axis=0), careamist.config.data_config.axes
+    )
+    input_array = reshape_array(sample_input, careamist.config.data_config.axes)
+
+    return input_array, output_array
+
+
+def create_cover_image(input_array: np.ndarray, output_array: np.ndarray) -> str:
+    create_cover(WORK_DIR, input_array, output_array)
+    cover_image_path = WORK_DIR / "cover.png"
+
+    return str(cover_image_path)
+
+
+def get_model_specs(careamist: CAREamist) -> dict | None:
+    name = careamist.config.get_algorithm_friendly_name()
+    description = careamist.config.get_algorithm_description()
+    citation = careamist.config.get_algorithm_citations()
+    references = careamist.config.get_algorithm_references()
+
+    return {
+        "model_name": name,
+        "general_description": description,
+        "citation": citation,
+        "references": references,
+    }
+
+
 def train(task: Task | None = None):
     # get input parameters from appose
     axes = transpose_axes(globals().get("axes", "YX"))
@@ -163,10 +221,9 @@ def train(task: Task | None = None):
 
     if not cancel_requested():
         log("Initializing CAREamist...")
-        work_dir = Path.home() / "careamics_logs"
         careamist = CAREamist(
             config,
-            work_dir=work_dir,
+            work_dir=WORK_DIR,
         )
 
         # update task callbacks if in appose mode
@@ -183,13 +240,25 @@ def train(task: Task | None = None):
         losses = get_losses(careamist)
         task.outputs["losses"] = losses
 
+        # get model checkpoint path
         for cb in careamist.callbacks:
             if isinstance(cb, ModelCheckpoint):
                 checkpoint_path = cb.best_model_path
-                if checkpoint_path is None:
+                if checkpoint_path is None or len(checkpoint_path) == 0:
                     checkpoint_path = cb.last_model_path
                 task.outputs["checkpoint_path"] = checkpoint_path
                 log(f"model checkpoint: {checkpoint_path}")
+
+        # sample input / output and cover image for bmz export
+        input_array, output_array = get_sample_input_output(careamist)
+        np.save(WORK_DIR / "sample_input.npy", input_array)
+        np.save(WORK_DIR / "sample_output.npy", output_array)
+        task.outputs["sample_input"] = str(WORK_DIR / "sample_input.npy")
+        task.outputs["sample_output"] = str(WORK_DIR / "sample_output.npy")
+        task.outputs["cover_image"] = create_cover_image(input_array, output_array)
+
+        # get model specs for bmz export
+        task.outputs["model_specs"] = get_model_specs(careamist)
     else:
         task.cancel()
 
@@ -198,14 +267,14 @@ def predict(task: Task | None = None):
     # checkpoint path
     checkpoint_path: str | None = globals().get("checkpoint_path")
     if checkpoint_path is None:
-        log("No model checkpoint was provided.")
+        log("No model checkpoint was provided.", is_error=True)
         return
 
     # pred data
     from_disk = globals().get("from_disk")
     pred_data: NDArray | str | None = globals().get("pred_source")
     if pred_data is None:
-        log("No prediction data was provided.")
+        log("No prediction data was provided.", is_error=True)
         return
     if from_disk:
         data_type = get_data_type(pred_data)
@@ -227,11 +296,13 @@ def predict(task: Task | None = None):
         tile_size = (z_tile_size, xy_tile_size, xy_tile_size)
         tile_overlap = (2, 16, 16)
 
-    # init CAREamist from checkpoint
+    # init CAREamist from the checkpoint
     if not cancel_requested():
-        careamist = CAREamist(
-            checkpoint_path=checkpoint_path, work_dir=Path.home() / "careamics_logs"
-        )
+        try:
+            careamist = CAREamist(checkpoint_path=checkpoint_path, work_dir=WORK_DIR)
+        except Exception as e:
+            log(f"Failed to initialize CAREamist from checkpoint: {e}", is_error=True)
+            return
     else:
         task.cancel()
         return
@@ -279,7 +350,7 @@ def predict(task: Task | None = None):
             task.cancel()
             log("Prediction was stopped.")
         except Exception as e:
-            log(f"An error occurred during prediction: {e}")
+            log(f"An error occurred during prediction: {e}", is_error=True)
     else:
         task.cancel()
 

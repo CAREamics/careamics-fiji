@@ -30,6 +30,7 @@ public class ExportDialog extends JDialog {
 
     private final String defaultCoverImage;
     private String uploadedCoverImage;
+    private final HashMap<String, Object> modelSpecs = new HashMap<>();
     private final List<AuthorData> authors = new ArrayList<>();
 
     private JTextField nameTextField;
@@ -40,15 +41,18 @@ public class ExportDialog extends JDialog {
     private JLabel imageLabel;
 
     public static void main(String[] args) {
-        // JFrame frame = new JFrame();
-        Dialog frame = new Dialog((Frame) null);
-        ExportDialog dialog = new ExportDialog(frame, null);
+        JFrame frame = new JFrame();
+        // Dialog frame = new Dialog((Frame) null);
+        ExportDialog dialog = new ExportDialog(frame, null, null);
         dialog.setVisible(true);
     }
 
-    public ExportDialog(Dialog parent, String defaultCoverImage) {
+    public ExportDialog(JFrame parent, String defaultCoverImage, HashMap<String, Object> modelSpecs) {
         super(parent, "BMZ Export", true);
         this.defaultCoverImage = defaultCoverImage;
+        if (modelSpecs != null) {
+            this.modelSpecs.putAll(modelSpecs);
+        }
 
         setContentPane(createPanel());
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -60,9 +64,12 @@ public class ExportDialog extends JDialog {
 
     private JPanel createPanel() {
         nameTextField = new JTextField();
+        nameTextField.setText((String) modelSpecs.get(MODEL_NAME));
         nameTextField.setToolTipText("At least 5 characters");
 
-        descriptionTextArea = createTextArea(3, "Enter a short description of your model.");
+        descriptionTextArea = createTextArea(5, "Enter a short description of your model.");
+        descriptionTextArea.setText((String) modelSpecs.get(GENERAL_DESCRIPTION));
+        
         dataDescriptionTextArea = createTextArea(4,
             "Describe the data that you used for training the model.\n"
                 + "Use Markdown formatting and must include a 'Validation' header "
@@ -71,7 +78,7 @@ public class ExportDialog extends JDialog {
         authorsListModel = new DefaultListModel<>();
         authorsList = new JList<>(authorsListModel);
         JScrollPane authorsScroll = new JScrollPane(authorsList);
-        authorsScroll.setPreferredSize(new Dimension(300, 90));
+        authorsScroll.setPreferredSize(new Dimension(300, 60));
 
         JButton addAuthorButton = new JButton("Add");
         addAuthorButton.addActionListener(e -> openNewAuthor());
@@ -91,7 +98,7 @@ public class ExportDialog extends JDialog {
 
         imageLabel = new JLabel();
         JScrollPane imageScroll = new JScrollPane(imageLabel);
-        imageScroll.setPreferredSize(new Dimension(400, 300));
+        imageScroll.setPreferredSize(new Dimension(300, 200));
         imageScroll.setBorder(BorderFactory.createLineBorder(Color.GRAY));
 
         JButton defaultCoverButton = new JButton("Default Cover Image");
@@ -265,8 +272,13 @@ public class ExportDialog extends JDialog {
         formData.put(MODEL_NAME, nameTextField.getText());
         formData.put(GENERAL_DESCRIPTION, descriptionTextArea.getText());
         formData.put(DATA_DESCRIPTION, dataDescriptionTextArea.getText());
-        formData.put(AUTHORS, new ArrayList<>(authors));
         formData.put(COVER_IMAGE, coverImage);
+        // convert authors to a list of maps
+        ArrayList<HashMap<String, Object>> _authors = new ArrayList<>();
+        for (AuthorData a:authors) {
+            _authors.add(a.toMap());
+        }
+        formData.put(AUTHORS, _authors);
 
         firePropertyChange(BMZ_EXPORT, null, formData);
         dispose();

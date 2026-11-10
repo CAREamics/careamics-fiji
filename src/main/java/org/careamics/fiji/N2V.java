@@ -1,17 +1,14 @@
 package org.careamics.fiji;
 
 import java.io.*;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-import java.awt.Color;
 import java.awt.BorderLayout;
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
@@ -24,11 +21,8 @@ import ij.WindowManager;
 import ij.gui.GUI;
 import net.imagej.ImageJ;
 import net.imagej.ImgPlus;
-import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.appose.NDArrays;
-import net.imglib2.appose.ShmImg;
 import net.imglib2.img.ImagePlusAdapter;
-import net.imglib2.img.Img;
 import net.imglib2.img.array.ArrayImg;
 import net.imglib2.img.display.imagej.ImageJFunctions;
 import net.imglib2.type.NativeType;
@@ -43,6 +37,7 @@ import org.apposed.appose.NDArray;
 import org.apposed.appose.Service;
 import org.apposed.appose.Service.Task;
 import org.apposed.appose.Service.TaskStatus;
+import org.apposed.appose.TaskEvent;
 
 import org.scijava.Initializable;
 import org.scijava.command.Command;
@@ -62,11 +57,15 @@ public class N2V extends DynamicCommand implements Initializable {
     @Parameter
     private LogService logger;
 
-    protected String trainedModelPath;
     protected MainGUI mainGUI;
     protected Environment apposeEnv;
     protected Task apposeTask;
     protected SwingWorker<Task, Task> taskWorker;
+    protected String trainedModelPath;
+    protected String sampleInputPath;
+    protected String sampleOutputPath;
+    protected String coverImagePath;
+    protected HashMap<String, Object> modelSpecs;
 
     @Override
     public void initialize() {
@@ -78,8 +77,8 @@ public class N2V extends DynamicCommand implements Initializable {
 		// ImageJ.main(args);
         final ImageJ ij = new ImageJ();
         ij.ui().showUI();
-		IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/SEM/val/val.tif").show();
-        IJ.openImage("/Users/mehdi.seifi/Projects/CAREamics/tmp_data_src/data/rgb_stack.tif").show();
+		IJ.openImage("/Users/mehdi.seifi/tmp_data/val.tif").show();
+        IJ.openImage("/Users/mehdi.seifi/tmp_data/rgb_stack.tif").show();
         
         try (Context context = new Context()) {
             final N2V plugin = new N2V();
@@ -135,6 +134,12 @@ public class N2V extends DynamicCommand implements Initializable {
                     this.taskWorker.execute();
                     break;
                 
+                case MainGUI.EXPORT_MODEL:
+                    HashMap<String, Object> exportData = (HashMap<String, Object>) evt.getNewValue();
+                    logger.info("Export model requested: " + exportData);
+                    exportModel(exportData);
+                    break;
+                
                 default:
                     break;
             }
@@ -148,16 +153,16 @@ public class N2V extends DynamicCommand implements Initializable {
             @Override
             protected Task doInBackground() throws Exception {
                 apposeTask = trainProcess(config);
-
+            
                 return apposeTask;
             }
-        
+            
             @Override
             protected void done() {
                 try {
                     apposeTask = get();
                     if (apposeTask == null) {
-                        logger.error("Task is null");
+                        // logger.error("Task is null");
                         return;
                     }
                     if (apposeTask.status == TaskStatus.FAILED) {
@@ -167,16 +172,28 @@ public class N2V extends DynamicCommand implements Initializable {
                     if (apposeTask.status == TaskStatus.COMPLETE) {
                         // handle graceful cancellation
                         if (apposeTask.outputs == null || apposeTask.outputs.get("checkpoint_path") == null) {
-                            logger.info("Training was cancelled!");
+                            logger.warn("Training was cancelled!");
                             return;
                         }
                         // get the checkpoint path
                         trainedModelPath = (String) apposeTask.outputs.get("checkpoint_path");
+                        // get sample input / output
+                        sampleInputPath = (String) apposeTask.outputs.get("sample_input");
+                        sampleOutputPath = (String) apposeTask.outputs.get("sample_output");
+                        // get cover image path
+                        coverImagePath = (String) apposeTask.outputs.get("cover_image");
+                        // get model specs
+                        modelSpecs = (HashMap<String, Object>) apposeTask.outputs.get("model_specs");
+                        // pass model specs to main GUI
+                        mainGUI.setModelBMZSpecs(modelSpecs, coverImagePath);
                         // plot losses
                         final Map<String, ArrayList<Float>> losses = (Map<String, ArrayList<Float>>) apposeTask.outputs.get("losses");
                         // show the loss plot
                         LossPlot lossPlot = new LossPlot(losses);
                         lossPlot.setVisible(true);
+
+                        // enable the export in the mainGUI
+                        mainGUI.enableExport();
                     }
                 
                 } catch (Exception e) {
@@ -209,7 +226,6 @@ public class N2V extends DynamicCommand implements Initializable {
         
         // python environment
         if (this.apposeEnv == null) {
-            logger.info("creating the python environment...");
             this.apposeEnv = createEnvironment();
         }
         // get the python script
@@ -223,33 +239,7 @@ public class N2V extends DynamicCommand implements Initializable {
             
             // listen for task updates
             apposeTask.listen(event -> {
-                switch (event.responseType) {
-                    case UPDATE:
-                        String msg = event.message;
-                        if (event.maximum > 0) {
-                            msg += " (" + event.current + "/" + event.maximum + ")";
-                            SwingUtilities.invokeLater(() -> {
-                                this.mainGUI.updateTrainingProgress(event.message, event.current, event.maximum);
-                            });
-                        }
-                        logger.info("[Python backend] " + msg);
-                        break;
-                    
-                    case COMPLETION:
-                        logger.info("Task completed successfully.");
-                        break;
-                    
-                    case CANCELATION:
-                        logger.warn("Task was cancelled.");
-                        break;
-                    
-                    case FAILURE:
-                        logger.error("Task failed:\n" + event.task.error);
-                        break;
-                    
-                    default:
-                        break;
-                }
+                taskEventListener(event, "training");
             });
             
             apposeTask.start();
@@ -342,7 +332,6 @@ public class N2V extends DynamicCommand implements Initializable {
         
         // python environment
         if (this.apposeEnv == null) {
-            logger.info("creating the python environment...");
             this.apposeEnv = createEnvironment();
         }
         // get the python script
@@ -356,33 +345,7 @@ public class N2V extends DynamicCommand implements Initializable {
             
             // listen for task updates
             apposeTask.listen(event -> {
-                switch (event.responseType) {
-                    case UPDATE:
-                        String msg = event.message;
-                        if (event.maximum > 0) {
-                            msg += " (" + event.current + "/" + event.maximum + ")";
-                            SwingUtilities.invokeLater(() -> {
-                                this.mainGUI.updatePredictionProgress(event.message, event.current, event.maximum);
-                            });
-                        }
-                        logger.info("[Python backend] " + msg);
-                        break;
-                    
-                    case COMPLETION:
-                        logger.info("Task completed successfully.");
-                        break;
-                    
-                    case CANCELATION:
-                        logger.warn("Task was cancelled.");
-                        break;
-                    
-                    case FAILURE:
-                        logger.error("Task failed:\n" + event.task.error);
-                        break;
-                    
-                    default:
-                        break;
-                }
+                taskEventListener(event, "prediction");
             });
             
             apposeTask.start();
@@ -393,6 +356,108 @@ public class N2V extends DynamicCommand implements Initializable {
             logger.error(e.toString());
             return null;
         }
+    }
+
+    private void exportModel(HashMap<String, Object> exportData) {
+        if (this.trainedModelPath != null) {
+            exportData.put("checkpoint_path", this.trainedModelPath);
+        } else {
+            logger.error("No trained model was provided.");
+            return;
+        }
+        
+        if (exportData.get("export_type") == MainGUI.EXPORT_CHECKPOINT) {
+            String exportPath = (String) exportData.get("export_path");
+            if (exportPath != null) {
+                // copy the file at trainedModelPath to the export path
+                try {
+                    Files.copy(
+                        Paths.get(this.trainedModelPath),
+                        Paths.get(exportPath),
+                        StandardCopyOption.REPLACE_EXISTING
+                );
+                } catch (IOException e) {
+                    logger.error("Failed to copy trained model checkpoint to export path: " + e.toString());
+                    return;
+                }
+            } else {
+                logger.error("No export path was provided for checkpoint export.");
+                return;
+            }
+        
+        } else {
+            exportToBMZ(exportData);
+        }
+
+    }
+
+    private void exportToBMZ(HashMap<String, Object> exportData) {
+        // add model specs to export data
+        exportData.putAll(this.modelSpecs);
+        // add sample input and output paths
+        exportData.put("sample_input", this.sampleInputPath);
+        exportData.put("sample_output", this.sampleOutputPath);
+        // add cover image path
+        if (this.coverImagePath != null) {
+            exportData.put("cover_image", this.coverImagePath);
+        } else {
+            logger.warn("No cover image was provided.");
+        }
+        
+        // python environment
+        if (this.apposeEnv == null) {
+            this.apposeEnv = createEnvironment();
+        }
+        
+        // get the export script
+        final String exportScript = getExportScript();
+        
+        // export the model
+        try (Service python = this.apposeEnv.python()) {
+            apposeTask = python.task(exportScript, exportData);
+            apposeTask.listen(event -> taskEventListener(event, "export"));
+            apposeTask.start();
+            apposeTask.waitFor();
+        } catch (Exception e) {
+            logger.error(e.toString());
+        }
+    }
+
+    private Task taskEventListener(TaskEvent event, String stage) {
+        switch (event.responseType) {
+            case UPDATE:
+                String msg = event.message;
+                if (event.maximum > 0) {
+                    msg += " (" + event.current + "/" + event.maximum + ")";
+                    if (stage == "training") {
+                        SwingUtilities.invokeLater(() -> {
+                            this.mainGUI.updateTrainingProgress(event.message, event.current, event.maximum);
+                        });
+                    } else if (stage == "prediction") {
+                        SwingUtilities.invokeLater(() -> {
+                            this.mainGUI.updatePredictionProgress(event.message, event.current, event.maximum);
+                        });
+                    }
+                }
+                if (msg.startsWith("ERROR")) {
+                    logger.error("[Python] " + msg);
+                } else {
+                    logger.info("[Python] " + msg);
+                }
+                break;
+            case COMPLETION:
+                logger.info("Task completed successfully.");
+                break;
+            case CANCELATION:
+                logger.warn("Task was cancelled.");
+                break;
+            case FAILURE:
+                logger.error("Task failed:\n" + event.task.error);
+                break;
+            default:
+                break;
+        }
+        return event.task;
     }
 
     private <T extends RealType<T> & NativeType<T>> NDArray imageToAppose(final ImagePlus imgp) {
@@ -417,6 +482,7 @@ public class N2V extends DynamicCommand implements Initializable {
     }
 
     private Environment createEnvironment() {
+        logger.info("creating the python environment...");
         try {
             String home = System.getProperty("user.home");
             String env_dir = Paths.get(home, "appose_careamics_env").toString();
@@ -424,6 +490,7 @@ public class N2V extends DynamicCommand implements Initializable {
             final Environment env = Appose.uv()
                 .python("3.11")
                 .include("appose>=0.12.0", "careamics==0.3.5")
+                // .include("pydantic==2.13.3")
                 .include("git+https://github.com/CAREamics/careamics-appose.git")
                 .name("appose_careamics_env")
                 .base(env_dir)
@@ -434,7 +501,7 @@ public class N2V extends DynamicCommand implements Initializable {
                     });
                 })
                 // .subscribeOutput(line -> logger.info(line))
-                // .subscribeError(line -> logger.info(line))
+                .subscribeError(line -> logger.info(line))
                 .logDebug()
                 .build();
 
@@ -453,6 +520,16 @@ public class N2V extends DynamicCommand implements Initializable {
             e.printStackTrace();
         }
         return n2vScript;
+    }
+
+    private String getExportScript() {
+        String exportScript = null;
+        try (InputStream instream = this.getClass().getClassLoader().getResourceAsStream("model_export.py")) {
+            exportScript = new String(instream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return exportScript;
     }
 
 }

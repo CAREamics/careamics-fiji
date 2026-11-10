@@ -3,6 +3,7 @@ package org.careamics.fiji.gui;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
 import java.awt.*;
 
 import javax.swing.*;
@@ -13,13 +14,18 @@ import ij.WindowManager;
 import org.scijava.log.LogService;
 
 import org.careamics.fiji.Config;
+import org.careamics.fiji.gui.bmz.ExportDialog;
 
 
 public class MainGUI extends JFrame {
     public static final String START_TRAINING = "startTraining";
     public static final String START_PREDICTION = "startPrediction";
     public static final String CANCEL_REQUESTED = "cancelRequested";
+    public static final String EXPORT_MODEL = "exportModel";
+    public static final String EXPORT_CHECKPOINT = "checkpoint";
+    public static final String EXPORT_BMZ = "bmz";
 
+    protected JTabbedPane tabbedPane;
     protected JTextField experimentNameField;
     protected AxesComboBox axesCombobox;
     protected JCheckBox patch3DCheckBox;
@@ -53,7 +59,8 @@ public class MainGUI extends JFrame {
     protected InputDataPanel predictionDataPanel;
     protected boolean modelFromDisk;
     protected String checkpointPath;
-    protected final JFileChooser checkpointChooser = new JFileChooser();
+    protected String defaultCoverImagePath;
+    protected HashMap<String, Object> modelSpecs;
 
     protected LogService logger;
 
@@ -80,9 +87,12 @@ public class MainGUI extends JFrame {
         mainPanel.add(createTitlePanel(), gbc);
         
         // create tabs for training, prediction, and export panels
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.addTab("Training", createTrainingPanel());
-        tabbedPane.addTab("Prediction", createPredictionPanel());
+        this.tabbedPane = new JTabbedPane();
+        this.tabbedPane.addTab("Training", createTrainingPanel());
+        this.tabbedPane.addTab("Prediction", createPredictionPanel());
+        this.tabbedPane.addTab("Export", createExportPanel());
+        // disable the export tab initially
+        tabbedPane.setEnabledAt(2, false); 
         gbc.gridy++;
         gbc.weighty = 1.0;
         mainPanel.add(tabbedPane, gbc);
@@ -133,6 +143,15 @@ public class MainGUI extends JFrame {
         this.predProgressBar.setIndeterminate(false);
         this.predProgressBar.setValue(0);
         this.predProgressBar.setString("0%");
+    }
+
+    public void setModelBMZSpecs(HashMap<String, Object> specs, String coverImagePath) {
+        this.modelSpecs = specs;
+        this.defaultCoverImagePath = coverImagePath;
+    }
+
+    public void enableExport() {
+        this.tabbedPane.setEnabledAt(2, true);
     }
 
     protected Config createTrainConfig() {
@@ -260,6 +279,32 @@ public class MainGUI extends JFrame {
         gbc.gridy++;
         basePanel.add(createPredictionProgressPanel(), gbc);
         
+        return basePanel;
+    }
+
+    protected JPanel createExportPanel() {
+        JPanel basePanel = new JPanel();
+        basePanel.setLayout(new GridBagLayout());
+        
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(0, 15, 10, 15);
+        gbc.anchor = GridBagConstraints.NORTH;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.6;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+
+        JButton exportCheckpointButton = new JButton("Export as PyTorch Lightning Checkpoint");
+        exportCheckpointButton.addActionListener(e -> exportModel(EXPORT_CHECKPOINT));
+        gbc.gridy = 0;
+        basePanel.add(exportCheckpointButton, gbc);
+
+        JButton exportBMZButton = new JButton("Export as Bioimage.io Model");
+        exportBMZButton.addActionListener(e -> exportModel(EXPORT_BMZ));
+        gbc.gridy++;
+        basePanel.add(exportBMZButton, gbc);
+
         return basePanel;
     }
 
@@ -392,14 +437,6 @@ public class MainGUI extends JFrame {
         gbc.weightx = 0.0;
         checkpointPanel.add(browseCheckpointButton, gbc);
         
-        this.checkpointChooser.setMultiSelectionEnabled(false);
-        this.checkpointChooser.setAcceptAllFileFilterUsed(false);
-        this.checkpointChooser.setFileFilter(
-            new FileNameExtensionFilter(
-                "Model Checkpoint Files (.ckpt)",
-                "ckpt"
-            )
-        );
         //actions
         fromDiskRButton.addChangeListener(e -> {
             browseCheckpointButton.setEnabled(fromDiskRButton.isSelected());
@@ -407,9 +444,18 @@ public class MainGUI extends JFrame {
         });
         
         browseCheckpointButton.addActionListener(e -> {
-            int returnVal = this.checkpointChooser.showOpenDialog(this);
+            JFileChooser checkpointChooser = new JFileChooser();
+            checkpointChooser.setMultiSelectionEnabled(false);
+            checkpointChooser.setAcceptAllFileFilterUsed(false);
+            checkpointChooser.setFileFilter(
+                new FileNameExtensionFilter(
+                    "Model Checkpoint Files (.ckpt)",
+                    "ckpt"
+                )
+            );
+            int returnVal = checkpointChooser.showOpenDialog(this);
             if (returnVal == JFileChooser.APPROVE_OPTION) {
-                this.checkpointPath = this.checkpointChooser.getSelectedFile().getAbsolutePath();
+                this.checkpointPath = checkpointChooser.getSelectedFile().getAbsolutePath();
                 checkpointField.setText(this.checkpointPath);
             }
         });
@@ -654,4 +700,55 @@ public class MainGUI extends JFrame {
         return imgName;
     }
 
+    private void exportModel(String exportType) {
+        // get the destination path for the export
+        String description = "PyTorch Lightning Checkpoint (*.ckpt)";
+        String extension = "ckpt";
+        if (exportType == EXPORT_BMZ) {
+            description = "Bioimage.io Model (*.zip)";
+            extension = "zip";
+        }
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Select Export Location");
+        fileChooser.setAcceptAllFileFilterUsed(false);
+        fileChooser.setFileFilter(
+            new FileNameExtensionFilter(description, extension)
+        );
+        // show the save dialog
+        int userSelection = fileChooser.showSaveDialog(this);
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            String exportPath = fileChooser.getSelectedFile().getAbsolutePath();
+            if (!exportPath.endsWith(extension)) {
+                exportPath += "." + extension;
+            }
+
+            HashMap<String, Object> exportData = new HashMap<>();
+            exportData.put("export_type", exportType);
+            exportData.put("export_path", exportPath);
+            
+            if (exportType == EXPORT_BMZ) {
+                // show the bmz specification dialog
+                ExportDialog exportDialog = new ExportDialog(this, defaultCoverImagePath, modelSpecs);
+                exportDialog.addPropertyChangeListener(evt -> {
+                    // update export data with bmz dialog results
+                    exportData.putAll((HashMap<String, Object>) evt.getNewValue());
+                    firePropertyChange(
+                        EXPORT_MODEL,
+                        null,
+                        exportData
+                    );
+                });
+                exportDialog.setVisible(true);
+            
+            } else {
+                // export the model as a PyTorch Lightning checkpoint
+                firePropertyChange(
+                    EXPORT_MODEL,
+                    null,
+                    exportData
+                );
+                }
+            }
+        
+    }
 }

@@ -19,7 +19,6 @@ public class AuthorDialog extends JDialog {
     private JButton cancelButton;
 
     private AuthorData author;
-    // private AuthorSubmitListener submitListener;
 
     public static void main(String[] args) {
         // JFrame frame = new JFrame();
@@ -62,8 +61,6 @@ public class AuthorDialog extends JDialog {
         gbc.anchor = GridBagConstraints.CENTER;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.gridwidth = 1;
-        // gbc.weightx = 1.0;
-        // gbc.weighty = 1.0;
         gbc.gridx = 0;
         gbc.gridy = 0;
 
@@ -169,13 +166,7 @@ public class AuthorDialog extends JDialog {
         try {
             // Validate author data
             AuthorData validatedAuthor = validateAuthor(authorData);
-
             this.firePropertyChange(AUTHOR_READY, null, validatedAuthor);
-            // // Emit submit signal
-            // if (submitListener != null) {
-            //     submitListener.onAuthorSubmitted(validatedAuthor);
-            // }
-
             dispose();
         } catch (AuthorValidationException ex) {
             JOptionPane.showMessageDialog(
@@ -233,27 +224,6 @@ public class AuthorDialog extends JDialog {
     }
 
     /**
-     * Sets the listener for author submission events.
-     *
-     * @param listener the listener to be called when author is submitted
-     */
-    // public void setSubmitListener(AuthorSubmitListener listener) {
-    //     this.submitListener = listener;
-    // }
-
-    /**
-     * Interface for listening to author submission events.
-     */
-    public interface AuthorSubmitListener {
-        /**
-         * Called when author data is submitted.
-         *
-         * @param author the submitted author data
-         */
-        void onAuthorSubmitted(AuthorData author);
-    }
-
-    /**
      * Exception thrown when author validation fails.
      */
     public static class AuthorValidationException extends Exception {
@@ -288,6 +258,16 @@ public class AuthorDialog extends JDialog {
             this.affiliation = affiliation;
             this.githubUser = githubUser;
             this.orcid = orcid;
+        }
+
+        public HashMap<String, Object> toMap() {
+            HashMap<String, Object> map = new HashMap<>();
+            map.put("name", name);
+            map.put("email", email);
+            map.put("affiliation", affiliation);
+            map.put("github_user", githubUser);
+            map.put("orcid", orcid);
+            return map;
         }
 
         public String getName() {
